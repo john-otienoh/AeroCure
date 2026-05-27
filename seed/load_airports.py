@@ -25,7 +25,7 @@ def _to_int(value):
     if not value:
         return None
     try:
-        return int(value)
+        return int(float(value))
     except (ValueError, TypeError):
         return None
 
@@ -80,3 +80,6 @@ def load_airports_from_csv(csv_path: str):
 
     logger.info("Loaded %d operational airstrips (skipped %d)", len(airstrips), skipped)
     return airstrips
+
+data = load_airports_from_csv("/home/outis/TechBoy/AeroCure/ke-airports.csv")
+print(data[0])

@@ -18,7 +18,7 @@ class Case(Base):
     condition_code = Column(String(2), nullable=False, index=True)
     condition_name = Column(String(100), nullable=False)
     airstrip_code = Column(
-        String(30),
+        String(10),
         nullable=False,
         index=True,
     )

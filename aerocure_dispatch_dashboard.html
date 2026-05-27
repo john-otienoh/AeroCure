@@ -3,16 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AeroCure — Dispatch Control</title>
+  <title>AeroCure — Dispatch Control (UI Demo)</title>
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <!-- Bootstrap 5 CSS (minimal, grid + utilities) -->
+  <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
 
   <style>
-    /* ===== AeroCure Dark Theme (custom + overrides) ===== */
     :root {
       --bg: #070D1A;
       --surface: #0D1526;
@@ -33,7 +32,6 @@
       overflow: hidden;
     }
 
-    /* header */
     .navbar-custom {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
@@ -54,7 +52,6 @@
     }
     .brand span.accent { color: var(--accent); }
 
-    /* active indicator */
     .active-badge {
       display: flex;
       align-items: center;
@@ -76,7 +73,6 @@
       animation: pulse 1.4s infinite;
     }
 
-    /* stats bar */
     .stats-bar {
       display: flex;
       gap: 12px;
@@ -106,13 +102,12 @@
       margin-top: 4px;
     }
 
-    /* main grid */
     .main-grid {
       display: grid;
       grid-template-columns: 1fr 380px;
       gap: 12px;
       padding: 12px;
-      height: calc(100vh - 56px - 90px); /* minus header and stats */
+      height: calc(100vh - 56px - 90px);
       overflow: hidden;
     }
     @media (max-width: 992px) {
@@ -121,14 +116,12 @@
       }
     }
 
-    /* map */
     #map {
       height: 100%;
       width: 100%;
       border-radius: 6px;
     }
 
-    /* cases panel */
     .cases-panel {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -138,27 +131,15 @@
       flex-direction: column;
       height: 100%;
     }
-    .cases-search {
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--border);
-    }
     .cases-search input {
       width: 100%;
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 4px;
       color: var(--text-primary);
-      font-family: 'DM Sans', sans-serif;
       font-size: 0.8rem;
       padding: 6px 10px;
       outline: none;
-    }
-    .cases-filters {
-      display: flex;
-      gap: 4px;
-      padding: 8px 14px;
-      border-bottom: 1px solid var(--border);
-      overflow-x: auto;
     }
     .filter-btn {
       background: transparent;
@@ -197,18 +178,6 @@
       font-size: 0.7rem;
       color: var(--text-muted);
     }
-    .case-footer span {
-      white-space: nowrap;
-    }
-    .cases-footer {
-      padding: 6px 14px;
-      border-top: 1px solid var(--border);
-      font-family: 'Space Mono', monospace;
-      font-size: 0.6rem;
-      color: var(--text-muted);
-    }
-
-    /* status badge */
     .status-badge {
       display: inline-flex;
       align-items: center;
@@ -227,7 +196,7 @@
       flex-shrink: 0;
     }
 
-    /* case detail overlay (slide panel) */
+    /* Overlay detail panel */
     .overlay-backdrop {
       position: fixed; inset: 0;
       background: rgba(0,0,0,0.6);
@@ -311,26 +280,18 @@
       cursor: not-allowed;
     }
 
-    /* animations */
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-    @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
     @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
-    @keyframes ripple {
-      0%{transform:scale(0.8);opacity:0.8}
-      100%{transform:scale(2.5);opacity:0}
-    }
+    @keyframes ripple { 0%{transform:scale(0.8);opacity:0.8} 100%{transform:scale(2.5);opacity:0} }
 
-    /* leaflet dark overrides */
     .leaflet-container { background: #070D1A; font-family: 'DM Sans', sans-serif; }
     .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; }
     .leaflet-popup-tip { background: var(--surface); }
     .leaflet-control-zoom a { background: var(--surface)!important; color: var(--text-secondary)!important; border-color: var(--border)!important; }
     .leaflet-control-zoom a:hover { background: var(--surface-hover)!important; color: var(--text-primary)!important; }
-    .leaflet-control-attribution { background: rgba(7,13,26,0.8)!important; color: var(--text-muted)!important; font-size: 10px!important; }
-    .leaflet-control-attribution a { color: var(--text-muted)!important; }
+    .leaflet-control-attribution { background: rgba(7,13,26,0.8)!important; color: var(--text-muted)!important; }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
@@ -348,19 +309,17 @@
         </span>
       </div>
       <div class="d-flex align-items-center gap-3">
-        <div id="active-indicator" class="active-badge d-none">
+        <div id="active-indicator" class="active-badge">
           <div class="active-dot"></div>
           <span id="active-count">0</span> ACTIVE
         </div>
-        <button id="refresh-btn" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" style="font-family:'Space Mono',monospace; font-size:0.65rem;">
-          <span id="sync-icon">⟳</span> <span id="sync-time">--:--:--</span>
-        </button>
+        <span style="font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--text-muted);">UI DEMO</span>
       </div>
     </header>
 
     <!-- Stats Bar -->
-    <div id="stats-bar" class="stats-bar">
-      <div class="stat-card"><div id="stat-active" class="stat-value">0</div><div class="stat-label">Active</div></div>
+    <div class="stats-bar">
+      <div class="stat-card"><div id="stat-active" class="stat-value" style="color:#EF4444">0</div><div class="stat-label">Active</div></div>
       <div class="stat-card"><div id="stat-total" class="stat-value">0</div><div class="stat-label">Total</div></div>
       <div class="stat-card"><div id="stat-received" class="stat-value" style="color:#F59E0B">0</div><div class="stat-label">Received</div></div>
       <div class="stat-card"><div id="stat-dispatched" class="stat-value" style="color:#3B82F6">0</div><div class="stat-label">Dispatched</div></div>
@@ -369,12 +328,12 @@
       <div class="stat-card"><div id="stat-eta" class="stat-value" style="color:var(--accent)">--</div><div class="stat-label">Avg ETA</div></div>
     </div>
 
-    <!-- Main content -->
+    <!-- Main Grid -->
     <div class="main-grid">
-      <div class="map-container"><div id="map"></div></div>
+      <div><div id="map"></div></div>
       <div class="cases-panel">
-        <div class="cases-search"><input id="search-input" type="text" placeholder="Search cases, airstrips, conditions…" /></div>
-        <div id="filter-buttons" class="cases-filters">
+        <div class="p-2"><input id="search-input" type="text" placeholder="Search cases…" /></div>
+        <div class="d-flex gap-1 p-2 flex-wrap" id="filter-buttons">
           <button class="filter-btn active" data-filter="ALL">ALL</button>
           <button class="filter-btn" data-filter="RECEIVED">RECEIVED</button>
           <button class="filter-btn" data-filter="DISPATCHED">DISPATCHED</button>
@@ -383,15 +342,17 @@
           <button class="filter-btn" data-filter="COMPLETED">COMPLETED</button>
         </div>
         <div id="cases-list" class="cases-list"></div>
-        <div class="cases-footer"><span id="case-count">0/0 cases</span></div>
+        <div class="p-2 border-top" style="font-family:'Space Mono',monospace;font-size:0.6rem;color:var(--text-muted);">
+          <span id="case-count">0/0 cases</span>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Case Detail Slide Panel (hidden) -->
+  <!-- Case Detail Overlay -->
   <div id="case-overlay" style="display:none;">
     <div class="overlay-backdrop" onclick="closeCaseDetail()"></div>
-    <div class="slide-panel" id="detail-panel">
+    <div class="slide-panel">
       <div class="slide-header">
         <div>
           <div id="detail-case-id" style="font-family:'Space Mono',monospace;font-size:1rem;font-weight:700;color:var(--accent);margin-bottom:6px;"></div>
@@ -405,7 +366,7 @@
         <div class="field"><div class="field-label">ETA</div><div class="field-value" id="detail-eta"></div></div>
         <div class="field"><div class="field-label">Created</div><div class="field-value" id="detail-created"></div></div>
         <div class="field"><div class="field-label">Notes</div><div class="field-value" id="detail-notes"></div></div>
-        <hr style="border-color:var(--border);margin:20px 0;" />
+        <hr style="border-color:var(--border); margin:20px 0;" />
         <div id="status-update-section"></div>
       </div>
     </div>
@@ -413,94 +374,110 @@
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Bootstrap JS (optional, only for small utilities) -->
+  <!-- Bootstrap JS (optional) -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
   <script>
     (function() {
-      // ----- Configuration -----
-      const API_BASE = ''; // Vite proxy equivalent; use full URL if needed
-      const POLL_INTERVAL = 30000; // 30s
+      // ----- Mock Data -----
+      const mockAirstrips = [
+        { code: "HKJK", name: "Jomo Kenyatta International Airport", county: "Nairobi City", city: "Nairobi", airport_type: "large_airport", latitude: -1.318886, longitude: 36.928233 },
+        { code: "HKMO", name: "Moi International Airport", county: "Mombasa County", city: "Mombasa", airport_type: "large_airport", latitude: -4.03483, longitude: 39.5942 },
+        { code: "HKNW", name: "Nairobi Wilson Airport", county: "Nairobi City", city: "Nairobi", airport_type: "medium_airport", latitude: -1.32172, longitude: 36.8148 },
+        { code: "HKNL", name: "Nanyuki Civil Airport", county: "Nyeri County", city: "Gathiuru", airport_type: "medium_airport", latitude: -0.062352, longitude: 37.041296 },
+        { code: "HKLK", name: "Lokichogio Airport", county: "Turkana County", city: "Lokichogio", airport_type: "medium_airport", latitude: 4.20412, longitude: 34.348202 },
+        { code: "HKUK", name: "Ukunda Airstrip", county: "Kwale County", city: "Ukunda", airport_type: "small_airport", latitude: -4.29333, longitude: 39.571098 },
+        { code: "HKMS", name: "Mara Serena Lodge Airstrip", county: "Narok County", city: "Serena", airport_type: "medium_airport", latitude: -1.404588, longitude: 35.008349 },
+      ];
+
+      const mockCases = [
+        {
+          id: "EVAC-001",
+          condition_name: "Severe Trauma (GSW)",
+          condition_code: "GSW",
+          airstrip_name: "Jomo Kenyatta International Airport",
+          airstrip_code: "HKJK",
+          status: "RECEIVED",
+          eta_minutes: null,
+          notes: "",
+          created_at: new Date(Date.now() - 3600000).toISOString()
+        },
+        {
+          id: "EVAC-002",
+          condition_name: "Obstructed Labour",
+          condition_code: "OB-LAB",
+          airstrip_name: "Moi International Airport",
+          airstrip_code: "HKMO",
+          status: "DISPATCHED",
+          eta_minutes: 45,
+          notes: "AMREF flight dispatched",
+          created_at: new Date(Date.now() - 7200000).toISOString()
+        },
+        {
+          id: "EVAC-003",
+          condition_name: "Snake Bite (Critical)",
+          condition_code: "SN-BITE",
+          airstrip_name: "Nanyuki Civil Airport",
+          airstrip_code: "HKNL",
+          status: "AIRBORNE",
+          eta_minutes: 20,
+          notes: "Anti-venom on board",
+          created_at: new Date(Date.now() - 1800000).toISOString()
+        },
+        {
+          id: "EVAC-004",
+          condition_name: "Myocardial Infarction",
+          condition_code: "MI",
+          airstrip_name: "Lokichogio Airport",
+          airstrip_code: "HKLK",
+          status: "LANDED",
+          eta_minutes: 0,
+          notes: "Ambulance to Kenyatta National Hospital",
+          created_at: new Date(Date.now() - 86400000).toISOString()
+        },
+        {
+          id: "EVAC-005",
+          condition_name: "Fractured Femur",
+          condition_code: "FX-FEMUR",
+          airstrip_name: "Ukunda Airstrip",
+          airstrip_code: "HKUK",
+          status: "COMPLETED",
+          eta_minutes: null,
+          notes: "Patient stable, transferred",
+          created_at: new Date(Date.now() - 172800000).toISOString()
+        }
+      ];
 
       // ----- State -----
-      let cases = [];
-      let airstrips = [];
+      let cases = [...mockCases];
+      let airstrips = [...mockAirstrips];
       let selectedCaseId = null;
-      let lastSync = null;
       let filter = 'ALL';
       let searchQuery = '';
       let map = null;
       let markers = { airstrips: [], cases: [], hospital: null };
-      let pollingTimer = null;
-      let syncRotation = false;
 
-      // Hospital coords (Kenyatta National Hospital)
       const HOSPITAL = { lat: -1.3005, lng: 36.8075, name: 'Kenyatta National Hospital' };
-
-      // Status colors
       const STATUS_COLORS = {
         RECEIVED: '#F59E0B', DISPATCHED: '#3B82F6',
         AIRBORNE: '#10B981', LANDED: '#A78BFA',
         COMPLETED: '#6EE7B7', CANCELLED: '#EF4444',
       };
 
-      // ----- API helpers -----
-      async function apiFetch(path, options = {}) {
-        const res = await fetch(`${API_BASE}${path}`, {
-          headers: { 'Content-Type': 'application/json', ...options.headers },
-          ...options,
-        });
-        if (!res.ok) {
-          const text = await res.text().catch(() => res.statusText);
-          throw new Error(`API ${options.method ?? 'GET'} ${path} → ${res.status}: ${text}`);
-        }
-        return res.json();
-      }
-
-      async function fetchCases() {
-        cases = await apiFetch('/api/cases');
-        lastSync = new Date();
-        updateUI();
-      }
-
-      async function fetchAirstrips() {
-        airstrips = await apiFetch('/api/airstrips');
-        airstrips = airstrips.filter(a => a.latitude != null && a.longitude != null);
-        updateMapAirstrips();
-      }
-
-      async function updateCaseStatus(caseId, payload) {
-        await apiFetch(`/api/cases/${caseId}/update`, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
-        // Optimistic update
-        const idx = cases.findIndex(c => c.id === caseId);
-        if (idx !== -1) {
-          cases[idx].status = payload.status;
-          if (payload.notes !== undefined) cases[idx].notes = payload.notes;
-          if (payload.eta_minutes !== undefined) cases[idx].eta_minutes = payload.eta_minutes;
-        }
-        updateUI();
-        if (selectedCaseId === caseId) renderCaseDetail();
-      }
-
-      // ----- UI Update Functions -----
+      // ----- UI rendering functions -----
       function updateUI() {
         renderStats();
         renderCasesPanel();
         updateMapCases();
         updateActiveIndicator();
-        document.getElementById('sync-time').textContent = lastSync
-          ? lastSync.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-          : '--:--:--';
       }
 
       function updateActiveIndicator() {
         const active = cases.filter(c => !['COMPLETED', 'CANCELLED'].includes(c.status)).length;
-        const badge = document.getElementById('active-indicator');
-        badge.classList.toggle('d-none', active === 0);
         document.getElementById('active-count').textContent = active;
+        const badge = document.getElementById('active-indicator');
+        if (active === 0) badge.style.display = 'none';
+        else badge.style.display = 'flex';
       }
 
       function renderStats() {
@@ -532,20 +509,17 @@
         countEl.textContent = `${filtered.length} / ${cases.length} cases`;
 
         if (filtered.length === 0) {
-          listEl.innerHTML = `<div class="text-center p-4" style="color:var(--text-muted);">${cases.length === 0 ? 'No cases yet' : 'No matching cases'}</div>`;
+          listEl.innerHTML = `<div class="text-center p-4" style="color:var(--text-muted);">No matching cases</div>`;
           return;
         }
 
         listEl.innerHTML = filtered.map(c => {
-          const ts = c.created_at
-            ? new Date(c.created_at).toLocaleString('en-KE', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
-            : '—';
-          const statusHtml = getStatusBadge(c.status);
+          const ts = new Date(c.created_at).toLocaleString('en-KE', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
           return `
             <div class="case-row" data-id="${c.id}">
               <div class="d-flex align-items-center justify-content-between mb-1">
                 <span style="font-family:'Space Mono',monospace;font-size:0.75rem;font-weight:700;color:var(--text-primary)">${c.id}</span>
-                ${statusHtml}
+                ${getStatusBadge(c.status)}
               </div>
               <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:3px">${c.condition_name}</div>
               <div class="case-footer">
@@ -555,34 +529,30 @@
             </div>`;
         }).join('');
 
-        // Attach click handlers
         listEl.querySelectorAll('.case-row').forEach(row => {
-          row.addEventListener('click', () => {
-            const id = row.dataset.id;
-            openCaseDetail(id);
-          });
+          row.addEventListener('click', () => openCaseDetail(row.dataset.id));
         });
       }
 
       function getStatusBadge(status) {
         const cfg = STATUS_COLORS[status] || '#94a3b8';
-        return `<span class="status-badge" style="background:${cfg}20;color:${cfg};border-color:${cfg}40">
+        return `<span class="status-badge" style="background:${cfg}20;color:${cfg};border:1px solid ${cfg}40">
           <span class="status-dot" style="background:${cfg};box-shadow:0 0 6px ${cfg};"></span>
           ${status}
         </span>`;
       }
 
-      // ----- Case Detail Overlay -----
+      // ----- Case Detail -----
       function openCaseDetail(caseId) {
         selectedCaseId = caseId;
         renderCaseDetail();
         document.getElementById('case-overlay').style.display = 'block';
       }
 
-      function closeCaseDetail() {
+      window.closeCaseDetail = function() {
         selectedCaseId = null;
         document.getElementById('case-overlay').style.display = 'none';
-      }
+      };
 
       function renderCaseDetail() {
         const c = cases.find(c => c.id === selectedCaseId);
@@ -593,12 +563,11 @@
         document.getElementById('detail-condition').textContent = `[${c.condition_code}] ${c.condition_name}`;
         document.getElementById('detail-airstrip').textContent = c.airstrip_name;
         document.getElementById('detail-eta').textContent = c.eta_minutes ? `${c.eta_minutes} minutes` : 'Not set';
-        document.getElementById('detail-created').textContent = c.created_at
-          ? new Date(c.created_at).toLocaleString('en-KE', { weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
-          : '—';
+        document.getElementById('detail-created').textContent = new Date(c.created_at).toLocaleString('en-KE', {
+          weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'
+        });
         document.getElementById('detail-notes').textContent = c.notes || '—';
 
-        // Status transitions
         const transitions = {
           RECEIVED: ['DISPATCHED', 'CANCELLED'],
           DISPATCHED: ['AIRBORNE', 'CANCELLED'],
@@ -610,7 +579,7 @@
 
         const section = document.getElementById('status-update-section');
         if (transitions.length === 0) {
-          section.innerHTML = `<div class="text-center" style="color:var(--text-muted);">This case is ${c.status.toLowerCase()} — no further updates available.</div>`;
+          section.innerHTML = `<div class="text-center" style="color:var(--text-muted);">No further updates available.</div>`;
           return;
         }
 
@@ -624,16 +593,16 @@
           <div class="field-label">Notes</div>
           <textarea id="notes-input" class="form-control mb-3" rows="3" placeholder="Dispatcher notes…" style="background:var(--bg);border-color:var(--border);color:var(--text-primary);">${c.notes ?? ''}</textarea>
           <button id="submit-update" class="update-btn" disabled>SET → STATUS</button>
-          <p class="text-center mt-2" style="font-size:0.65rem;color:var(--text-muted);">SMS notifications will be sent automatically on update.</p>
+          <p class="text-center mt-2" style="font-size:0.65rem;color:var(--text-muted);">This is a UI demo – updates only change local state.</p>
         `;
 
         let selectedStatus = null;
-        const statusButtons = section.querySelectorAll('.status-btn');
+        const statusBtns = section.querySelectorAll('.status-btn');
         const submitBtn = document.getElementById('submit-update');
 
-        statusButtons.forEach(btn => {
+        statusBtns.forEach(btn => {
           btn.addEventListener('click', () => {
-            statusButtons.forEach(b => b.classList.remove('selected'));
+            statusBtns.forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
             selectedStatus = btn.dataset.status;
             submitBtn.textContent = `SET → ${selectedStatus}`;
@@ -642,45 +611,31 @@
           });
         });
 
-        submitBtn.addEventListener('click', async () => {
+        submitBtn.addEventListener('click', () => {
           if (!selectedStatus) return;
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'UPDATING…';
-          const eta = document.getElementById('eta-input').value;
-          const notes = document.getElementById('notes-input').value;
-          try {
-            await updateCaseStatus(selectedCaseId, {
-              status: selectedStatus,
-              notes: notes,
-              eta_minutes: eta ? parseInt(eta) : null,
-            });
-            closeCaseDetail();
-          } catch (err) {
-            alert('Update failed: ' + err.message);
-          } finally {
-            submitBtn.disabled = false;
-            submitBtn.textContent = selectedStatus ? `SET → ${selectedStatus}` : 'SET → STATUS';
-          }
+          // Update mock data locally
+          const idx = cases.findIndex(c => c.id === selectedCaseId);
+          if (idx === -1) return;
+          cases[idx].status = selectedStatus;
+          cases[idx].notes = document.getElementById('notes-input').value;
+          const etaVal = document.getElementById('eta-input').value;
+          cases[idx].eta_minutes = etaVal ? parseInt(etaVal) : null;
+          updateUI();
+          closeCaseDetail();
         });
       }
 
-      // ----- Map Functions -----
+      // ----- Map -----
       function initMap() {
-        map = L.map('map', {
-          center: [0.5, 37.5],
-          zoom: 6,
-          zoomControl: true,
-        });
+        map = L.map('map', { center: [0.5, 37.5], zoom: 6 });
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
           attribution: '© OpenStreetMap © CARTO',
           maxZoom: 19,
         }).addTo(map);
 
-        // Hospital marker
         const hospIcon = L.divIcon({
           html: `<div style="width:28px;height:28px;border-radius:50%;background:#fff;border:2px solid #10B981;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 10px #10B98150;">🏥</div>`,
-          iconSize: [28,28],
-          iconAnchor: [14,14],
+          iconSize: [28,28], iconAnchor: [14,14],
         });
         markers.hospital = L.marker([HOSPITAL.lat, HOSPITAL.lng], { icon: hospIcon })
           .addTo(map)
@@ -694,12 +649,11 @@
         airstrips.forEach(a => {
           const icon = L.divIcon({
             html: `<div style="width:10px;height:10px;border-radius:50%;background:#334155;border:1.5px solid #64748B;box-shadow:0 0 4px #00000080;"></div>`,
-            iconSize: [10,10],
-            iconAnchor: [5,5],
+            iconSize: [10,10], iconAnchor: [5,5],
           });
           const m = L.marker([a.latitude, a.longitude], { icon })
             .addTo(map)
-            .bindPopup(`<div style="font-family:monospace;font-size:12px;"><b>✈ ${a.name}</b><br>${a.county ?? ''}<br><span style="opacity:0.6">${a.code} · ${a.airport_type ?? 'airport'}</span></div>`);
+            .bindPopup(`<div style="font-family:monospace;font-size:12px;"><b>✈ ${a.name}</b><br>${a.county ?? ''}<br><span style="opacity:0.6">${a.code}</span></div>`);
           markers.airstrips.push(m);
         });
       }
@@ -718,31 +672,17 @@
               <div style="position:absolute;inset:0;border-radius:50%;background:${color}30;animation:ripple 1.5s ease-out infinite;"></div>
               <div style="position:absolute;inset:4px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color};"></div>
             </div>`,
-            iconSize: [20,20],
-            iconAnchor: [10,10],
+            iconSize: [20,20], iconAnchor: [10,10],
           });
           const m = L.marker([airstrip.latitude, airstrip.longitude], { icon })
             .addTo(map)
-            .bindPopup(`<div style="font-family:monospace;font-size:12px;min-width:160px;"><b>${c.id}</b><br>${c.condition_name}<br><span style="color:${color};font-weight:700;">${c.status}</span>${c.eta_minutes ? `<br>ETA: ${c.eta_minutes} min` : ''}</div>`)
+            .bindPopup(`<div style="font-family:monospace;font-size:12px;"><b>${c.id}</b><br>${c.condition_name}<br><span style="color:${color};font-weight:700;">${c.status}</span>${c.eta_minutes ? `<br>ETA: ${c.eta_minutes} min` : ''}</div>`)
             .on('click', () => openCaseDetail(c.id));
           markers.cases.push(m);
         });
       }
 
-      // ----- Event Listeners -----
-      document.getElementById('refresh-btn').addEventListener('click', async () => {
-        const icon = document.getElementById('sync-icon');
-        syncRotation = true;
-        icon.style.animation = 'spin 1s linear infinite';
-        try {
-          await fetchCases();
-          await fetchAirstrips();
-        } finally {
-          syncRotation = false;
-          icon.style.animation = '';
-        }
-      });
-
+      // ----- Event listeners -----
       document.getElementById('search-input').addEventListener('input', (e) => {
         searchQuery = e.target.value;
         renderCasesPanel();
@@ -757,36 +697,19 @@
         }
       });
 
-      // Close overlay on Escape
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeCaseDetail();
+        if (e.key === 'Escape') window.closeCaseDetail();
       });
 
-      // ----- Initial Load -----
-      async function initialLoad() {
-        try {
-          await Promise.all([fetchCases(), fetchAirstrips()]);
-        } catch (err) {
-          console.error('Initial load failed:', err);
-          document.body.innerHTML = `<div class="d-flex flex-column align-items-center justify-content-center" style="height:100vh;color:var(--text-muted);">
-            <div style="font-size:2rem;">⚠</div>
-            <div style="font-family:'Space Mono',monospace;">API unavailable</div>
-            <button onclick="location.reload()" class="btn btn-sm mt-3" style="background:var(--accent);color:#0f172a;">RETRY</button>
-          </div>`;
-          return;
-        }
-        // Start polling
-        pollingTimer = setInterval(fetchCases, POLL_INTERVAL);
-      }
-
-      // Init map once DOM is ready
+      // ----- Initialise -----
       window.addEventListener('DOMContentLoaded', () => {
         initMap();
-        initialLoad();
+        // Use mock data
+        airstrips = mockAirstrips;
+        cases = mockCases;
+        updateMapAirstrips();
+        updateUI();
       });
-
-      // Expose close function globally for backdrop onclick
-      window.closeCaseDetail = closeCaseDetail;
     })();
   </script>
 </body>
