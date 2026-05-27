@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 africastalking.initialize(
-		username="EMID",
-		api_key=os.getenv("AT_API_KEY")
+		username="sandbox",
+		api_key=os.getenv('SANDBOX_API_KEY')
 
 	)
 
@@ -21,7 +21,7 @@ def welcome_message(phone_number, message):
 
 	# message = ;
 
-	sender = 20880
+	sender = 90875
 
 	try:
 		response = sms.send(message, recipients, sender)
