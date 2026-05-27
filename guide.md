@@ -1219,3 +1219,25 @@ pilot partners in Turkana and Marsabit County Health Departments."
 
 *AeroCure — Built for the Africa's Talking Transportation & Logistics Hackathon*
 *One SMS. Five actions. Lives saved. 🚑✈️*
+
+
+create full project from when a 
+
+```markdown
+
+
+The nurse types: `EVAC 4 TURKANA` and sends it to a shortcode number.
+
+That single SMS automatically:
+- Sends a text to the AMREF dispatch office with the emergency details
+- Sends a text to the airstrip agent at Turkana airstrip
+- Sends a text to the receiving hospital in Nairobi
+- Sends a text to the patient's registered next of kin
+- Sends the nurse a confirmation with a case ID and estimated aircraft arrival time based on longitude and latitude 
+The nurse can then check updates anytime b
+factor in real time distance to calculate the eta and distance based on different airport location coordinates i.e both lat and long assuming that my base of operation is wilson so starting pint is wilson airport -1.32172, 36.8148 and aircraft type is the cesna caravan.
+The dispatcher has a computer screen (dashboard) showing all active cases, where aircraft are, and who has been contacted with a dashboard displaying real data.
+for testing purposes let's use the console/userinput to get the nurse message and then, save it to the db sqlite for developement, interpret the message and return message back to the nurse then constantly update the dashboard based on the data from the db. where real data is not available use mock data use any of python fastapi / and htm, css with bootsrap css and js 
+```
+
+all the code should be stored in a single md file plus the readme and other project essentials. Any point that you need clarification before you start building don't hesitate to ask

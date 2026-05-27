@@ -1,0 +1,1471 @@
+## `app/models/__init__.py`
+
+from app.models.airstrip           import Airstrip             # noqa: F401
+from app.models.case               import Case, CaseStatus     # noqa: F401
+from app.models.condition          import Condition            # noqa: F401
+from app.models.hospital           import Hospital             # noqa: F401
+from app.models.case_contact       import CaseContact, ContactRole  # noqa: F401
+from app.models.case_status_history import CaseStatusHistory   # noqa: F401
+from app.models.notification       import Notification, NotifStatus, NotifChannel, NotifRole  # noqa: F401
+from app.models.ussd_session       import USSDSession, USSDOutcome  # noqa: F401
+from app.models.operator           import Operator, OperatorRole  # noqa: F401
+
+__all__ = [
+    "Airstrip",
+    "Case", "CaseStatus",
+    "Condition",
+    "Hospital",
+    "CaseContact", "ContactRole",
+    "CaseStatusHistory",
+    "Notification", "NotifStatus", "NotifChannel", "NotifRole",
+    "USSDSession", "USSDOutcome",
+    "Operator", "OperatorRole",
+]
+```
+
+---
+
+## `app/models/airstrip.py`
+
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class Airstrip(Base):
+    __tablename__ = "airstrips"
+
+    # ── Identity ──────────────────────────────────────────────────────────────
+    icao_code         = Column(String(10),  primary_key=True)
+    # IATA code (e.g. MBA) — not every airport has one; indexed for quick lookup
+    iata_code         = Column(String(10),  nullable=True,  index=True)
+
+    # ── Descriptive ───────────────────────────────────────────────────────────
+    name              = Column(String(200), nullable=False)
+    # small_airport | medium_airport | large_airport | seaplane_base
+    airport_type      = Column(String(30),  nullable=True)
+    city              = Column(String(80),  nullable=True)   # municipality
+    county            = Column(String(80),  nullable=True)   # human-readable region name
+    county_code       = Column(String(80),  nullable=True)   # local_region from CSV e.g. "01"
+
+    # ── Geography ─────────────────────────────────────────────────────────────
+    latitude          = Column(Float,       nullable=True)
+    longitude         = Column(Float,       nullable=True)
+    elevation_ft      = Column(Integer,     nullable=True)
+
+    # ── Operational ───────────────────────────────────────────────────────────
+    # True = regular commercial flights; helps operators know if runway is maintained
+    scheduled_service = Column(Boolean,     nullable=True)
+    # Ground agent phone — populated manually after seeding; NOT in public data
+    agent_phone       = Column(String(20),  nullable=True)
+
+    updated_at        = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    def __repr__(self) -> str:
+        return f"{self.icao_code} — {self.name} — {self.county}"
+```
+
+---
+
+## `app/models/case.py`
+
+import enum
+
+from sqlalchemy import Column, DateTime, Enum, Integer, String, Text
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class CaseStatus(str, enum.Enum):
+    RECEIVED   = "RECEIVED"    # SMS/USSD received, not yet dispatched
+    DISPATCHED = "DISPATCHED"  # Aircraft confirmed and en route
+    AIRBORNE   = "AIRBORNE"    # Aircraft in the air
+    LANDED     = "LANDED"      # Aircraft at airstrip, patient boarding
+    COMPLETED  = "COMPLETED"   # Patient delivered to hospital
+    CANCELLED  = "CANCELLED"   # Aborted before dispatch
+
+
+class Case(Base):
+    __tablename__ = "cases"
+
+    # Human-readable PK: EVAC-2025-0001
+    id               = Column(String(20),  primary_key=True)
+
+    # ── Medical ───────────────────────────────────────────────────────────────
+    condition_code   = Column(String(2),   nullable=False, index=True)
+    condition_name   = Column(String(100), nullable=False)
+
+    # ── Location ──────────────────────────────────────────────────────────────
+    # Stored as plain string (not FK constraint) so seed order doesn't matter
+    airstrip_code    = Column(String(10),  nullable=False, index=True)
+    # Denormalised: avoids a join on every dashboard render
+    airstrip_name    = Column(String(200), nullable=False)
+
+    # ── Contact ───────────────────────────────────────────────────────────────
+    # Always stored masked: +254XXXXXX789 — raw phone lives in case_contacts
+    initiating_phone = Column(String(20),  nullable=False)
+
+    # ── Lifecycle ─────────────────────────────────────────────────────────────
+    status           = Column(
+        Enum(CaseStatus, name="case_status"),
+        default=CaseStatus.RECEIVED,
+        nullable=False,
+        index=True,
+    )
+    eta_minutes      = Column(Integer,     nullable=True)
+    notes            = Column(Text,        nullable=True)
+
+    created_at       = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at       = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        return f"<Case {self.id} {self.status} @ {self.airstrip_code}>"
+```
+
+---
+
+## `app/models/condition.py`
+
+from sqlalchemy import Boolean, Column, Integer, String, Text
+
+from app.database import Base
+
+
+class Condition(Base):
+    __tablename__ = "conditions"
+
+    # 2-letter code used in Case.condition_code and USSD menus
+    code        = Column(String(2),   primary_key=True)
+    # Full display name shown in SMS and dashboard
+    name        = Column(String(100), nullable=False)
+    # Clinical notes for dispatchers
+    description = Column(Text,        nullable=True)
+    # Triage priority: 1 = most critical, 5 = least
+    priority    = Column(Integer,     nullable=False, default=3)
+    # Set False to hide from USSD menu without deleting the row
+    is_active   = Column(Boolean,     nullable=False, default=True)
+
+    def __repr__(self) -> str:
+        return f"<Condition {self.code} [{self.priority}] — {self.name}>"
+```
+
+**Seed data:**
+
+```python
+CONDITIONS = [
+    Condition(code="TR", name="Trauma / Injury",       priority=1, is_active=True,
+              description="Physical trauma, road accident, falls, burns."),
+    Condition(code="CA", name="Cardiac Emergency",     priority=1, is_active=True,
+              description="Suspected MI, cardiac arrest, severe arrhythmia."),
+    Condition(code="OB", name="Obstetric Emergency",   priority=1, is_active=True,
+              description="Complicated labour, eclampsia, PPH."),
+    Condition(code="RE", name="Respiratory Distress",  priority=2, is_active=True,
+              description="Severe asthma, pneumonia, COVID-19 with hypoxia."),
+    Condition(code="OT", name="Other Critical",        priority=3, is_active=True,
+              description="Any other life-threatening condition."),
+]
+```
+
+---
+
+## `app/models/hospital.py`
+
+from sqlalchemy import Boolean, Column, Float, Integer, String
+
+from app.database import Base
+
+
+class Hospital(Base):
+    __tablename__ = "hospitals"
+
+    id         = Column(Integer,     primary_key=True, autoincrement=True)
+    name       = Column(String(120), nullable=False)
+    # Duty desk number — receives SMS alerts on every new case
+    phone      = Column(String(20),  nullable=False)
+    county     = Column(String(80),  nullable=True)
+    latitude   = Column(Float,       nullable=True)
+    longitude  = Column(Float,       nullable=True)
+    # Only one row should have is_default=True; used by notify_service fallback
+    is_default = Column(Boolean,     nullable=False, default=False)
+    is_active  = Column(Boolean,     nullable=False, default=True)
+
+    def __repr__(self) -> str:
+        return f"<Hospital {self.name} default={self.is_default}>"
+```
+
+**Seed data:**
+
+```python
+HOSPITALS = [
+    Hospital(
+        name="Kenyatta National Hospital",
+        phone="+254722000010",
+        county="Nairobi County",
+        latitude=-1.3005,
+        longitude=36.8075,
+        is_default=True,
+        is_active=True,
+    ),
+    Hospital(
+        name="Moi Teaching & Referral Hospital",
+        phone="+254722000011",
+        county="Uasin Gishu County",
+        latitude=0.5082,
+        longitude=35.2697,
+        is_default=False,
+        is_active=True,
+    ),
+    Hospital(
+        name="Coast General Teaching & Referral Hospital",
+        phone="+254722000012",
+        county="Mombasa County",
+        latitude=-4.0526,
+        longitude=39.6639,
+        is_default=False,
+        is_active=True,
+    ),
+]
+```
+
+---
+
+## `app/models/case_contact.py`
+
+import enum
+
+from sqlalchemy import Column, DateTime, Enum, Integer, String
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class ContactRole(str, enum.Enum):
+    NURSE       = "NURSE"
+    NEXT_OF_KIN = "NEXT_OF_KIN"
+    AGENT       = "AGENT"
+    HOSPITAL    = "HOSPITAL"
+
+
+class CaseContact(Base):
+    __tablename__ = "case_contacts"
+
+    id           = Column(Integer,    primary_key=True, autoincrement=True)
+    case_id      = Column(String(20), nullable=False, index=True)
+    role         = Column(Enum(ContactRole, name="contact_role"), nullable=False)
+    # Full E.164 number — used for Africa's Talking delivery
+    phone_raw    = Column(String(20), nullable=False)
+    # Display-safe version stored alongside: +254XXXXXX789
+    phone_masked = Column(String(20), nullable=False)
+    name         = Column(String(100),nullable=True)
+    # Timestamp of first successful notification to this contact
+    notified_at  = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<CaseContact {self.case_id} {self.role} {self.phone_masked}>"
+```
+
+> No seed data — rows are created by `notify_service.notify_case_created()`.
+
+---
+
+## `app/models/case_status_history.py`
+
+from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class CaseStatusHistory(Base):
+    __tablename__ = "case_status_history"
+
+    id          = Column(Integer,    primary_key=True, autoincrement=True)
+    case_id     = Column(String(20), nullable=False, index=True)
+    # NULL on first row (RECEIVED) — no previous status
+    from_status = Column(String(20), nullable=True)
+    to_status   = Column(String(20), nullable=False)
+    # Who made the change: "USSD", "DASHBOARD", or operator username
+    changed_by  = Column(String(60), nullable=False, default="SYSTEM")
+    notes       = Column(Text,       nullable=True)
+    # ETA at the time of this transition, if set
+    eta_minutes = Column(Integer,    nullable=True)
+    changed_at  = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return f"<StatusHistory {self.case_id}: {self.from_status} → {self.to_status}>"
+```
+
+> No seed data — rows are created automatically by status-update logic.
+
+---
+
+## `app/models/notification.py`
+
+import enum
+
+from sqlalchemy import Column, DateTime, Enum, Integer, String, Text
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class NotifChannel(str, enum.Enum):
+    SMS  = "SMS"
+    USSD = "USSD"   # reserved for future USSD-push notifications
+
+
+class NotifStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    SENT    = "SENT"
+    FAILED  = "FAILED"
+
+
+class NotifRole(str, enum.Enum):
+    NURSE       = "NURSE"
+    AGENT       = "AGENT"
+    HOSPITAL    = "HOSPITAL"
+    NEXT_OF_KIN = "NEXT_OF_KIN"
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id              = Column(Integer,    primary_key=True, autoincrement=True)
+    # NULL if this SMS is not associated with a specific case (e.g. system alerts)
+    case_id         = Column(String(20), nullable=True, index=True)
+    recipient_phone = Column(String(20), nullable=False)
+    recipient_role  = Column(Enum(NotifRole,    name="notif_role"),    nullable=False)
+    channel         = Column(Enum(NotifChannel, name="notif_channel"), nullable=False,
+                             default=NotifChannel.SMS)
+    # First 100 chars of the message body — for debugging, not full content
+    message_preview = Column(String(100),nullable=True)
+    # Africa's Talking message ID returned in API response — use for delivery queries
+    at_message_id   = Column(String(60), nullable=True)
+    status          = Column(Enum(NotifStatus, name="notif_status"), nullable=False,
+                             default=NotifStatus.PENDING)
+    # e.g. "KES 0.8000" — from AT API response
+    cost            = Column(String(20), nullable=True)
+    # Populated on FAILED; stores the exception or AT error message
+    error_detail    = Column(Text,       nullable=True)
+    sent_at         = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Notification {self.case_id} {self.channel} {self.status}>"
+```
+
+> No seed data — rows are written by `at_service.send_sms()`.
+
+---
+
+## `app/models/ussd_session.py`
+
+import enum
+
+from sqlalchemy import Column, DateTime, Enum, String
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class USSDOutcome(str, enum.Enum):
+    CASE_CREATED   = "CASE_CREATED"    # User completed emergency report
+    STATUS_CHECKED = "STATUS_CHECKED"  # User queried a case
+    ABANDONED      = "ABANDONED"       # Session ended without completing
+    CANCELLED      = "CANCELLED"       # User explicitly cancelled
+
+
+class USSDSession(Base):
+    __tablename__ = "ussd_sessions"
+
+    # AT-provided session ID — unique per USSD dial
+    session_id   = Column(String(60),  primary_key=True)
+    phone        = Column(String(20),  nullable=False, index=True)
+    service_code = Column(String(20),  nullable=True)
+    # Full input path at session end e.g. "1*2*3*1"
+    final_text   = Column(String(200), nullable=True)
+    # Case ID created during this session, or NULL
+    case_created = Column(String(20),  nullable=True)
+    outcome      = Column(Enum(USSDOutcome, name="ussd_outcome"), nullable=True)
+    started_at   = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Written when the session returns an END response
+    ended_at     = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<USSDSession {self.session_id} {self.outcome}>"
+```
+
+> No seed data — rows are created by the USSD router on each session.
+
+---
+
+## `app/models/operator.py`
+
+import enum
+
+from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class OperatorRole(str, enum.Enum):
+    ADMIN      = "ADMIN"       # Full access, can create operators
+    DISPATCHER = "DISPATCHER"  # Can update case status, view all cases
+    VIEWER     = "VIEWER"      # Read-only dashboard access
+
+
+class Operator(Base):
+    __tablename__ = "operators"
+
+    id            = Column(Integer,    primary_key=True, autoincrement=True)
+    username      = Column(String(60), nullable=False, unique=True, index=True)
+    # bcrypt hash — use passlib.hash.bcrypt.hash(password) to generate
+    password_hash = Column(String(128),nullable=False)
+    full_name     = Column(String(100),nullable=True)
+    role          = Column(
+        Enum(OperatorRole, name="operator_role"),
+        nullable=False,
+        default=OperatorRole.DISPATCHER,
+    )
+    is_active     = Column(Boolean,    nullable=False, default=True)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    created_at    = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Operator {self.username} [{self.role}]>"
+```
+
+**Seed data** — generate the hash once then paste it in:
+
+```python
+# Run once to generate: python -c "from passlib.hash import bcrypt; print(bcrypt.hash('change_me_now'))"
+OPERATORS = [
+    Operator(
+        username="admin",
+        password_hash="$2b$12$REPLACE_WITH_REAL_BCRYPT_HASH",
+        full_name="AeroCure Admin",
+        role=OperatorRole.ADMIN,
+        is_active=True,
+    ),
+]
+```
+
+---
+
+## `seed/load_airports.py`
+
+import csv
+import logging
+from pathlib import Path
+from typing import Optional
+
+from app.models.airstrip import Airstrip
+
+logger = logging.getLogger(__name__)
+
+EXCLUDED_TYPES = {"heliport", "closed", "balloonport"}
+
+
+def _to_float(value: Optional[str]) -> Optional[float]:
+    if not value:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _to_int(value: Optional[str]) -> Optional[int]:
+    if not value:
+        return None
+    try:
+        return int(float(value))   # handles "52.0" as well as "52"
+    except (ValueError, TypeError):
+        return None
+
+
+def _to_bool(value: Optional[str]) -> Optional[bool]:
+    """'1'/'0'/empty → True/False/None."""
+    if not value or value.strip() == "":
+        return None
+    return value.strip() == "1"
+
+
+def load_airports_from_csv(csv_path: str) -> list[Airstrip]:
+    """
+    Parse a local OurAirports CSV and return Airstrip ORM instances
+    for operational Kenyan airports only.
+
+    Expected columns (from the KE-filtered download):
+        id, ident, type, name, latitude_deg, longitude_deg, elevation_ft,
+        continent, country_name, iso_country, region_name, iso_region,
+        local_region, municipality, scheduled_service, gps_code,
+        icao_code, iata_code, local_code, home_link, wikipedia_link,
+        keywords, score, last_updated
+    """
+    airstrips: list[Airstrip] = []
+    skipped = 0
+
+    logger.info("Reading CSV: %s", csv_path)
+
+    with open(csv_path, encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+
+        for row in reader:
+            # Safety net — skip non-KE rows if the CSV contains other countries
+            if row.get("iso_country", "KE").strip().upper() != "KE":
+                skipped += 1
+                continue
+
+            airport_type = row.get("type", "").strip().lower()
+            if airport_type in EXCLUDED_TYPES:
+                skipped += 1
+                continue
+
+            # Prefer explicit icao_code column; fall back to ident
+            icao = (row.get("icao_code") or row.get("ident") or "").strip()
+            name = (row.get("name") or "").strip()
+
+            if not icao or not name:
+                logger.warning("Skipping row — missing code or name: %s", row)
+                skipped += 1
+                continue
+
+            county = (row.get("region_name") or "").strip() or None
+            if county and "county" not in county.lower():
+                county = f"{county} County"
+
+            airstrips.append(
+                Airstrip(
+                    icao_code         = icao,
+                    iata_code         = (row.get("iata_code") or "").strip() or None,
+                    name              = name,
+                    airport_type      = airport_type,
+                    city              = (row.get("municipality") or "").strip() or None,
+                    county            = county,
+                    county_code       = (row.get("local_region") or "").strip() or None,
+                    latitude          = _to_float(row.get("latitude_deg")),
+                    longitude         = _to_float(row.get("longitude_deg")),
+                    elevation_ft      = _to_int(row.get("elevation_ft")),
+                    scheduled_service = _to_bool(row.get("scheduled_service")),
+                    agent_phone       = None,   # Populated operationally
+                )
+            )
+
+    logger.info(
+        "CSV load complete — %d airstrips loaded, %d rows skipped",
+        len(airstrips), skipped,
+    )
+    return airstrips
+```
+
+---
+
+## `seed/seed_data.py`
+
+import argparse
+import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  [%(levelname)-8s]  %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+    stream=sys.stdout,
+)
+logger = logging.getLogger("seed")
+
+# ── MUST import before create_all so every table is registered ───────────────
+from app.database import Base, engine, SessionLocal
+import app.models                                        # registers all models
+
+from app.models.airstrip            import Airstrip
+from app.models.condition           import Condition
+from app.models.hospital            import Hospital
+from app.models.operator            import Operator, OperatorRole
+from seed.load_airports             import load_airports_from_csv
+
+DEFAULT_CSV = Path(__file__).parent / "ke-airports.csv"
+
+
+# ── Reference / static seed data ─────────────────────────────────────────────
+
+CONDITIONS = [
+    Condition(code="TR", name="Trauma / Injury",       priority=1, is_active=True,
+              description="Physical trauma, road accident, falls, burns."),
+    Condition(code="CA", name="Cardiac Emergency",     priority=1, is_active=True,
+              description="Suspected MI, cardiac arrest, severe arrhythmia."),
+    Condition(code="OB", name="Obstetric Emergency",   priority=1, is_active=True,
+              description="Complicated labour, eclampsia, postpartum haemorrhage."),
+    Condition(code="RE", name="Respiratory Distress",  priority=2, is_active=True,
+              description="Severe asthma, pneumonia, hypoxia."),
+    Condition(code="OT", name="Other Critical",        priority=3, is_active=True,
+              description="Any other life-threatening condition not listed above."),
+]
+
+HOSPITALS = [
+    Hospital(name="Kenyatta National Hospital",           phone="+254722000010",
+             county="Nairobi County",    latitude=-1.3005, longitude=36.8075,
+             is_default=True,  is_active=True),
+    Hospital(name="Moi Teaching & Referral Hospital",     phone="+254722000011",
+             county="Uasin Gishu County",latitude=0.5082,  longitude=35.2697,
+             is_default=False, is_active=True),
+    Hospital(name="Coast General Teaching & Referral",    phone="+254722000012",
+             county="Mombasa County",    latitude=-4.0526, longitude=39.6639,
+             is_default=False, is_active=True),
+]
+
+# Generate hash: python -c "from passlib.hash import bcrypt; print(bcrypt.hash('change_me_now'))"
+OPERATORS = [
+    Operator(username="admin", full_name="AeroCure Admin",
+             password_hash="$2b$12$REPLACE_WITH_REAL_BCRYPT_HASH",
+             role=OperatorRole.ADMIN, is_active=True),
+]
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _upsert(db, model, rows: list, pk_field: str = "code") -> int:
+    """
+    Idempotent upsert for small reference tables:
+    skip rows whose PK already exists, insert the rest.
+    """
+    existing_pks = {getattr(r, pk_field) for r in db.query(model).all()}
+    new_rows = [r for r in rows if getattr(r, pk_field) not in existing_pks]
+    if new_rows:
+        db.bulk_save_objects(new_rows)
+        db.commit()
+    return len(new_rows)
+
+
+# ── Seed functions ────────────────────────────────────────────────────────────
+
+def create_tables() -> None:
+    logger.info("Creating database tables (if not exist)…")
+    Base.metadata.create_all(bind=engine)
+    logger.info("✅  Tables ready")
+
+
+def seed_airstrips(csv_path: str) -> None:
+    airstrips = load_airports_from_csv(csv_path)
+    if not airstrips:
+        logger.error("No airstrips loaded — check CSV path and contents")
+        sys.exit(1)
+
+    db = SessionLocal()
+    try:
+        existing = db.query(Airstrip).count()
+        if existing:
+            logger.info("Clearing %d existing airstrip rows…", existing)
+            db.query(Airstrip).delete(synchronize_session=False)
+            db.commit()
+        db.bulk_save_objects(airstrips)
+        db.commit()
+        logger.info("✅  Inserted %d airstrips", db.query(Airstrip).count())
+    except Exception:
+        db.rollback()
+        logger.exception("Airstrip seed failed — rolled back")
+        raise
+    finally:
+        db.close()
+
+
+def seed_reference_data() -> None:
+    db = SessionLocal()
+    try:
+        inserted = _upsert(db, Condition, CONDITIONS, pk_field="code")
+        logger.info("✅  Conditions: %d new rows (skipped existing)", inserted)
+
+        inserted = _upsert(db, Hospital, HOSPITALS, pk_field="name")
+        logger.info("✅  Hospitals:  %d new rows (skipped existing)", inserted)
+
+        inserted = _upsert(db, Operator, OPERATORS, pk_field="username")
+        logger.info("✅  Operators:  %d new rows (skipped existing)", inserted)
+    except Exception:
+        db.rollback()
+        logger.exception("Reference seed failed — rolled back")
+        raise
+    finally:
+        db.close()
+
+
+def verify() -> None:
+    db = SessionLocal()
+    try:
+        total       = db.query(Airstrip).count()
+        with_coords = db.query(Airstrip).filter(Airstrip.latitude.isnot(None)).count()
+        sample      = db.query(Airstrip).limit(5).all()
+
+        logger.info("─" * 58)
+        logger.info("  Airstrips total     : %d", total)
+        logger.info("  With coordinates    : %d", with_coords)
+        logger.info("  Conditions          : %d", db.query(Condition).count())
+        logger.info("  Hospitals           : %d", db.query(Hospital).count())
+        logger.info("  Operators           : %d", db.query(Operator).count())
+        logger.info("  Sample airstrips:")
+        for s in sample:
+            logger.info(
+                "    %-10s  %-6s  %-40s  %s",
+                s.icao_code, s.iata_code or "—", s.name, s.county or "—",
+            )
+        logger.info("─" * 58)
+    finally:
+        db.close()
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="AeroCure Phase 1 seed")
+    parser.add_argument("--csv", default=str(DEFAULT_CSV),
+                        help="Path to Kenya airports CSV")
+    parser.add_argument("--skip-airports", action="store_true",
+                        help="Skip CSV reload (re-seed reference tables only)")
+    args = parser.parse_args()
+
+    logger.info("=" * 58)
+    logger.info("AeroCure — Phase 1 Seed")
+    logger.info("=" * 58)
+
+    create_tables()
+
+    if not args.skip_airports:
+        seed_airstrips(args.csv)
+
+    seed_reference_data()
+    verify()
+
+    logger.info("Phase 1 seed complete ✅")
+
+
+if __name__ == "__main__":
+    main()
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AeroCure — Dispatch Control (UI Demo)</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg: #070D1A;
+      --surface: #0D1526;
+      --surface-hover: #142035;
+      --border: #1E2D45;
+      --accent: #38BDF8;
+      --accent-dim: rgba(56,189,248,0.12);
+      --text-primary: #E2E8F0;
+      --text-secondary: #94A3B8;
+      --text-muted: #475569;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text-primary);
+      font-family: 'DM Sans', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    .navbar-custom {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: 'Space Mono', monospace;
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.02em;
+    }
+    .brand span.accent { color: var(--accent); }
+
+    .active-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 4px;
+      padding: 4px 12px;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.7rem;
+      color: #EF4444;
+      font-weight: 700;
+    }
+    .active-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #EF4444;
+      box-shadow: 0 0 8px #EF4444;
+      animation: pulse 1.4s infinite;
+    }
+
+    .stats-bar {
+      display: flex;
+      gap: 12px;
+      padding: 14px 1.5rem;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      min-width: 120px;
+      flex: 1;
+    }
+    .stat-value {
+      font-family: 'Space Mono', monospace;
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 4px;
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 12px;
+      padding: 12px;
+      height: calc(100vh - 56px - 90px);
+      overflow: hidden;
+    }
+    @media (max-width: 992px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+      border-radius: 6px;
+    }
+
+    .cases-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .cases-search input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-size: 0.8rem;
+      padding: 6px 10px;
+      outline: none;
+    }
+    .filter-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      color: var(--text-muted);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.58rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      letter-spacing: 0.05em;
+    }
+    .filter-btn.active {
+      background: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+    }
+    .cases-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+    .case-row {
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .case-row:hover {
+      background: var(--surface-hover);
+    }
+    .case-footer {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+    .status-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* Overlay detail panel */
+    .overlay-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(3px);
+      z-index: 100;
+    }
+    .slide-panel {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: min(420px, 100vw);
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      z-index: 101;
+      display: flex;
+      flex-direction: column;
+      animation: slideIn 0.2s ease;
+      overflow: hidden;
+    }
+    .slide-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .slide-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+    }
+    .field {
+      margin-bottom: 14px;
+    }
+    .field-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.58rem;
+      color: var(--text-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+    .field-value {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+    .status-btn {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    .status-btn.selected, .status-btn:hover {
+      background: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+    }
+    .update-btn {
+      width: 100%;
+      background: var(--border);
+      border: none;
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .update-btn.active {
+      background: var(--accent);
+      color: #0f172a;
+      cursor: pointer;
+    }
+    .update-btn:disabled {
+      cursor: not-allowed;
+    }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+    @keyframes ripple { 0%{transform:scale(0.8);opacity:0.8} 100%{transform:scale(2.5);opacity:0} }
+
+    .leaflet-container { background: #070D1A; font-family: 'DM Sans', sans-serif; }
+    .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; }
+    .leaflet-popup-tip { background: var(--surface); }
+    .leaflet-control-zoom a { background: var(--surface)!important; color: var(--text-secondary)!important; border-color: var(--border)!important; }
+    .leaflet-control-zoom a:hover { background: var(--surface-hover)!important; color: var(--text-primary)!important; }
+    .leaflet-control-attribution { background: rgba(7,13,26,0.8)!important; color: var(--text-muted)!important; }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="navbar-custom">
+      <div class="brand">
+        🚑
+        <span>AEROCURE<span class="accent">_</span></span>
+        <span style="font-size:0.65rem; color:var(--text-muted); letter-spacing:0.1em; padding-left:8px; border-left:1px solid var(--border);">
+          DISPATCH CONTROL
+        </span>
+      </div>
+      <div class="d-flex align-items-center gap-3">
+        <div id="active-indicator" class="active-badge">
+          <div class="active-dot"></div>
+          <span id="active-count">0</span> ACTIVE
+        </div>
+        <span style="font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--text-muted);">UI DEMO</span>
+      </div>
+    </header>
+
+    <!-- Stats Bar -->
+    <div class="stats-bar">
+      <div class="stat-card"><div id="stat-active" class="stat-value" style="color:#EF4444">0</div><div class="stat-label">Active</div></div>
+      <div class="stat-card"><div id="stat-total" class="stat-value">0</div><div class="stat-label">Total</div></div>
+      <div class="stat-card"><div id="stat-received" class="stat-value" style="color:#F59E0B">0</div><div class="stat-label">Received</div></div>
+      <div class="stat-card"><div id="stat-dispatched" class="stat-value" style="color:#3B82F6">0</div><div class="stat-label">Dispatched</div></div>
+      <div class="stat-card"><div id="stat-airborne" class="stat-value" style="color:#10B981">0</div><div class="stat-label">Airborne</div></div>
+      <div class="stat-card"><div id="stat-landed" class="stat-value" style="color:#A78BFA">0</div><div class="stat-label">Landed</div></div>
+      <div class="stat-card"><div id="stat-eta" class="stat-value" style="color:var(--accent)">--</div><div class="stat-label">Avg ETA</div></div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="main-grid">
+      <div><div id="map"></div></div>
+      <div class="cases-panel">
+        <div class="p-2"><input id="search-input" type="text" placeholder="Search cases…" /></div>
+        <div class="d-flex gap-1 p-2 flex-wrap" id="filter-buttons">
+          <button class="filter-btn active" data-filter="ALL">ALL</button>
+          <button class="filter-btn" data-filter="RECEIVED">RECEIVED</button>
+          <button class="filter-btn" data-filter="DISPATCHED">DISPATCHED</button>
+          <button class="filter-btn" data-filter="AIRBORNE">AIRBORNE</button>
+          <button class="filter-btn" data-filter="LANDED">LANDED</button>
+          <button class="filter-btn" data-filter="COMPLETED">COMPLETED</button>
+        </div>
+        <div id="cases-list" class="cases-list"></div>
+        <div class="p-2 border-top" style="font-family:'Space Mono',monospace;font-size:0.6rem;color:var(--text-muted);">
+          <span id="case-count">0/0 cases</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Case Detail Overlay -->
+  <div id="case-overlay" style="display:none;">
+    <div class="overlay-backdrop" onclick="closeCaseDetail()"></div>
+    <div class="slide-panel">
+      <div class="slide-header">
+        <div>
+          <div id="detail-case-id" style="font-family:'Space Mono',monospace;font-size:1rem;font-weight:700;color:var(--accent);margin-bottom:6px;"></div>
+          <div id="detail-status-badge"></div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" onclick="closeCaseDetail()">✕</button>
+      </div>
+      <div class="slide-body">
+        <div class="field"><div class="field-label">Condition</div><div class="field-value" id="detail-condition"></div></div>
+        <div class="field"><div class="field-label">Airstrip</div><div class="field-value" id="detail-airstrip"></div></div>
+        <div class="field"><div class="field-label">ETA</div><div class="field-value" id="detail-eta"></div></div>
+        <div class="field"><div class="field-label">Created</div><div class="field-value" id="detail-created"></div></div>
+        <div class="field"><div class="field-label">Notes</div><div class="field-value" id="detail-notes"></div></div>
+        <hr style="border-color:var(--border); margin:20px 0;" />
+        <div id="status-update-section"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Bootstrap JS (optional) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    (function() {
+      // ----- Mock Data -----
+      const mockAirstrips = [
+        { code: "HKJK", name: "Jomo Kenyatta International Airport", county: "Nairobi City", city: "Nairobi", airport_type: "large_airport", latitude: -1.318886, longitude: 36.928233 },
+        { code: "HKMO", name: "Moi International Airport", county: "Mombasa County", city: "Mombasa", airport_type: "large_airport", latitude: -4.03483, longitude: 39.5942 },
+        { code: "HKNW", name: "Nairobi Wilson Airport", county: "Nairobi City", city: "Nairobi", airport_type: "medium_airport", latitude: -1.32172, longitude: 36.8148 },
+        { code: "HKNL", name: "Nanyuki Civil Airport", county: "Nyeri County", city: "Gathiuru", airport_type: "medium_airport", latitude: -0.062352, longitude: 37.041296 },
+        { code: "HKLK", name: "Lokichogio Airport", county: "Turkana County", city: "Lokichogio", airport_type: "medium_airport", latitude: 4.20412, longitude: 34.348202 },
+        { code: "HKUK", name: "Ukunda Airstrip", county: "Kwale County", city: "Ukunda", airport_type: "small_airport", latitude: -4.29333, longitude: 39.571098 },
+        { code: "HKMS", name: "Mara Serena Lodge Airstrip", county: "Narok County", city: "Serena", airport_type: "medium_airport", latitude: -1.404588, longitude: 35.008349 },
+      ];
+
+      const mockCases = [
+        {
+          id: "EVAC-001",
+          condition_name: "Severe Trauma (GSW)",
+          condition_code: "GSW",
+          airstrip_name: "Jomo Kenyatta International Airport",
+          airstrip_code: "HKJK",
+          status: "RECEIVED",
+          eta_minutes: null,
+          notes: "",
+          created_at: new Date(Date.now() - 3600000).toISOString()
+        },
+        {
+          id: "EVAC-002",
+          condition_name: "Obstructed Labour",
+          condition_code: "OB-LAB",
+          airstrip_name: "Moi International Airport",
+          airstrip_code: "HKMO",
+          status: "DISPATCHED",
+          eta_minutes: 45,
+          notes: "AMREF flight dispatched",
+          created_at: new Date(Date.now() - 7200000).toISOString()
+        },
+        {
+          id: "EVAC-003",
+          condition_name: "Snake Bite (Critical)",
+          condition_code: "SN-BITE",
+          airstrip_name: "Nanyuki Civil Airport",
+          airstrip_code: "HKNL",
+          status: "AIRBORNE",
+          eta_minutes: 20,
+          notes: "Anti-venom on board",
+          created_at: new Date(Date.now() - 1800000).toISOString()
+        },
+        {
+          id: "EVAC-004",
+          condition_name: "Myocardial Infarction",
+          condition_code: "MI",
+          airstrip_name: "Lokichogio Airport",
+          airstrip_code: "HKLK",
+          status: "LANDED",
+          eta_minutes: 0,
+          notes: "Ambulance to Kenyatta National Hospital",
+          created_at: new Date(Date.now() - 86400000).toISOString()
+        },
+        {
+          id: "EVAC-005",
+          condition_name: "Fractured Femur",
+          condition_code: "FX-FEMUR",
+          airstrip_name: "Ukunda Airstrip",
+          airstrip_code: "HKUK",
+          status: "COMPLETED",
+          eta_minutes: null,
+          notes: "Patient stable, transferred",
+          created_at: new Date(Date.now() - 172800000).toISOString()
+        }
+      ];
+
+      // ----- State -----
+      let cases = [...mockCases];
+      let airstrips = [...mockAirstrips];
+      let selectedCaseId = null;
+      let filter = 'ALL';
+      let searchQuery = '';
+      let map = null;
+      let markers = { airstrips: [], cases: [], hospital: null };
+
+      const HOSPITAL = { lat: -1.3005, lng: 36.8075, name: 'Kenyatta National Hospital' };
+      const STATUS_COLORS = {
+        RECEIVED: '#F59E0B', DISPATCHED: '#3B82F6',
+        AIRBORNE: '#10B981', LANDED: '#A78BFA',
+        COMPLETED: '#6EE7B7', CANCELLED: '#EF4444',
+      };
+
+      // ----- UI rendering functions -----
+      function updateUI() {
+        renderStats();
+        renderCasesPanel();
+        updateMapCases();
+        updateActiveIndicator();
+      }
+
+      function updateActiveIndicator() {
+        const active = cases.filter(c => !['COMPLETED', 'CANCELLED'].includes(c.status)).length;
+        document.getElementById('active-count').textContent = active;
+        const badge = document.getElementById('active-indicator');
+        if (active === 0) badge.style.display = 'none';
+        else badge.style.display = 'flex';
+      }
+
+      function renderStats() {
+        const counts = { RECEIVED:0, DISPATCHED:0, AIRBORNE:0, LANDED:0, COMPLETED:0 };
+        cases.forEach(c => { if (counts[c.status] !== undefined) counts[c.status]++; });
+        const active = cases.filter(c => !['COMPLETED', 'CANCELLED'].includes(c.status)).length;
+        const withEta = cases.filter(c => c.eta_minutes && !['COMPLETED', 'CANCELLED'].includes(c.status));
+        const avgEta = withEta.length ? Math.round(withEta.reduce((s,c)=>s+c.eta_minutes,0)/withEta.length) : null;
+
+        document.getElementById('stat-active').textContent = active;
+        document.getElementById('stat-total').textContent = cases.length;
+        document.getElementById('stat-received').textContent = counts.RECEIVED;
+        document.getElementById('stat-dispatched').textContent = counts.DISPATCHED;
+        document.getElementById('stat-airborne').textContent = counts.AIRBORNE;
+        document.getElementById('stat-landed').textContent = counts.LANDED;
+        document.getElementById('stat-eta').textContent = avgEta !== null ? `${avgEta}m` : '--';
+      }
+
+      function renderCasesPanel() {
+        const listEl = document.getElementById('cases-list');
+        const countEl = document.getElementById('case-count');
+        const filtered = cases.filter(c => {
+          if (filter !== 'ALL' && c.status !== filter) return false;
+          if (!searchQuery) return true;
+          const q = searchQuery.toLowerCase();
+          return [c.id, c.condition_name, c.airstrip_name, c.status]
+            .some(v => v?.toLowerCase().includes(q));
+        });
+        countEl.textContent = `${filtered.length} / ${cases.length} cases`;
+
+        if (filtered.length === 0) {
+          listEl.innerHTML = `<div class="text-center p-4" style="color:var(--text-muted);">No matching cases</div>`;
+          return;
+        }
+
+        listEl.innerHTML = filtered.map(c => {
+          const ts = new Date(c.created_at).toLocaleString('en-KE', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+          return `
+            <div class="case-row" data-id="${c.id}">
+              <div class="d-flex align-items-center justify-content-between mb-1">
+                <span style="font-family:'Space Mono',monospace;font-size:0.75rem;font-weight:700;color:var(--text-primary)">${c.id}</span>
+                ${getStatusBadge(c.status)}
+              </div>
+              <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:3px">${c.condition_name}</div>
+              <div class="case-footer">
+                <span>✈ ${c.airstrip_name}</span>
+                <span>${c.eta_minutes ? `${c.eta_minutes}m ETA` : ts}</span>
+              </div>
+            </div>`;
+        }).join('');
+
+        listEl.querySelectorAll('.case-row').forEach(row => {
+          row.addEventListener('click', () => openCaseDetail(row.dataset.id));
+        });
+      }
+
+      function getStatusBadge(status) {
+        const cfg = STATUS_COLORS[status] || '#94a3b8';
+        return `<span class="status-badge" style="background:${cfg}20;color:${cfg};border:1px solid ${cfg}40">
+          <span class="status-dot" style="background:${cfg};box-shadow:0 0 6px ${cfg};"></span>
+          ${status}
+        </span>`;
+      }
+
+      // ----- Case Detail -----
+      function openCaseDetail(caseId) {
+        selectedCaseId = caseId;
+        renderCaseDetail();
+        document.getElementById('case-overlay').style.display = 'block';
+      }
+
+      window.closeCaseDetail = function() {
+        selectedCaseId = null;
+        document.getElementById('case-overlay').style.display = 'none';
+      };
+
+      function renderCaseDetail() {
+        const c = cases.find(c => c.id === selectedCaseId);
+        if (!c) return;
+
+        document.getElementById('detail-case-id').textContent = c.id;
+        document.getElementById('detail-status-badge').innerHTML = getStatusBadge(c.status);
+        document.getElementById('detail-condition').textContent = `[${c.condition_code}] ${c.condition_name}`;
+        document.getElementById('detail-airstrip').textContent = c.airstrip_name;
+        document.getElementById('detail-eta').textContent = c.eta_minutes ? `${c.eta_minutes} minutes` : 'Not set';
+        document.getElementById('detail-created').textContent = new Date(c.created_at).toLocaleString('en-KE', {
+          weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'
+        });
+        document.getElementById('detail-notes').textContent = c.notes || '—';
+
+        const transitions = {
+          RECEIVED: ['DISPATCHED', 'CANCELLED'],
+          DISPATCHED: ['AIRBORNE', 'CANCELLED'],
+          AIRBORNE: ['LANDED', 'CANCELLED'],
+          LANDED: ['COMPLETED'],
+          COMPLETED: [],
+          CANCELLED: [],
+        }[c.status] || [];
+
+        const section = document.getElementById('status-update-section');
+        if (transitions.length === 0) {
+          section.innerHTML = `<div class="text-center" style="color:var(--text-muted);">No further updates available.</div>`;
+          return;
+        }
+
+        section.innerHTML = `
+          <div class="field-label">Update Status</div>
+          <div class="d-flex flex-wrap gap-2 mb-3" id="status-buttons">
+            ${transitions.map(s => `<button class="status-btn" data-status="${s}">→ ${s}</button>`).join('')}
+          </div>
+          <div class="field-label">ETA (minutes)</div>
+          <input type="number" id="eta-input" class="form-control mb-3" placeholder="e.g. 45" value="${c.eta_minutes ?? ''}" style="background:var(--bg);border-color:var(--border);color:var(--text-primary);" />
+          <div class="field-label">Notes</div>
+          <textarea id="notes-input" class="form-control mb-3" rows="3" placeholder="Dispatcher notes…" style="background:var(--bg);border-color:var(--border);color:var(--text-primary);">${c.notes ?? ''}</textarea>
+          <button id="submit-update" class="update-btn" disabled>SET → STATUS</button>
+          <p class="text-center mt-2" style="font-size:0.65rem;color:var(--text-muted);">This is a UI demo – updates only change local state.</p>
+        `;
+
+        let selectedStatus = null;
+        const statusBtns = section.querySelectorAll('.status-btn');
+        const submitBtn = document.getElementById('submit-update');
+
+        statusBtns.forEach(btn => {
+          btn.addEventListener('click', () => {
+            statusBtns.forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            selectedStatus = btn.dataset.status;
+            submitBtn.textContent = `SET → ${selectedStatus}`;
+            submitBtn.disabled = false;
+            submitBtn.classList.add('active');
+          });
+        });
+
+        submitBtn.addEventListener('click', () => {
+          if (!selectedStatus) return;
+          // Update mock data locally
+          const idx = cases.findIndex(c => c.id === selectedCaseId);
+          if (idx === -1) return;
+          cases[idx].status = selectedStatus;
+          cases[idx].notes = document.getElementById('notes-input').value;
+          const etaVal = document.getElementById('eta-input').value;
+          cases[idx].eta_minutes = etaVal ? parseInt(etaVal) : null;
+          updateUI();
+          closeCaseDetail();
+        });
+      }
+
+      // ----- Map -----
+      function initMap() {
+        map = L.map('map', { center: [0.5, 37.5], zoom: 6 });
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          attribution: '© OpenStreetMap © CARTO',
+          maxZoom: 19,
+        }).addTo(map);
+
+        const hospIcon = L.divIcon({
+          html: `<div style="width:28px;height:28px;border-radius:50%;background:#fff;border:2px solid #10B981;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 10px #10B98150;">🏥</div>`,
+          iconSize: [28,28], iconAnchor: [14,14],
+        });
+        markers.hospital = L.marker([HOSPITAL.lat, HOSPITAL.lng], { icon: hospIcon })
+          .addTo(map)
+          .bindPopup(`<b>🏥 ${HOSPITAL.name}</b><br>Receiving hospital`);
+      }
+
+      function updateMapAirstrips() {
+        if (!map) return;
+        markers.airstrips.forEach(m => m.remove());
+        markers.airstrips = [];
+        airstrips.forEach(a => {
+          const icon = L.divIcon({
+            html: `<div style="width:10px;height:10px;border-radius:50%;background:#334155;border:1.5px solid #64748B;box-shadow:0 0 4px #00000080;"></div>`,
+            iconSize: [10,10], iconAnchor: [5,5],
+          });
+          const m = L.marker([a.latitude, a.longitude], { icon })
+            .addTo(map)
+            .bindPopup(`<div style="font-family:monospace;font-size:12px;"><b>✈ ${a.name}</b><br>${a.county ?? ''}<br><span style="opacity:0.6">${a.code}</span></div>`);
+          markers.airstrips.push(m);
+        });
+      }
+
+      function updateMapCases() {
+        if (!map) return;
+        markers.cases.forEach(m => m.remove());
+        markers.cases = [];
+        const activeCases = cases.filter(c => !['COMPLETED', 'CANCELLED'].includes(c.status));
+        activeCases.forEach(c => {
+          const airstrip = airstrips.find(a => a.code === c.airstrip_code);
+          if (!airstrip) return;
+          const color = STATUS_COLORS[c.status] || '#94a3b8';
+          const icon = L.divIcon({
+            html: `<div style="position:relative;width:20px;height:20px;">
+              <div style="position:absolute;inset:0;border-radius:50%;background:${color}30;animation:ripple 1.5s ease-out infinite;"></div>
+              <div style="position:absolute;inset:4px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color};"></div>
+            </div>`,
+            iconSize: [20,20], iconAnchor: [10,10],
+          });
+          const m = L.marker([airstrip.latitude, airstrip.longitude], { icon })
+            .addTo(map)
+            .bindPopup(`<div style="font-family:monospace;font-size:12px;"><b>${c.id}</b><br>${c.condition_name}<br><span style="color:${color};font-weight:700;">${c.status}</span>${c.eta_minutes ? `<br>ETA: ${c.eta_minutes} min` : ''}</div>`)
+            .on('click', () => openCaseDetail(c.id));
+          markers.cases.push(m);
+        });
+      }
+
+      // ----- Event listeners -----
+      document.getElementById('search-input').addEventListener('input', (e) => {
+        searchQuery = e.target.value;
+        renderCasesPanel();
+      });
+
+      document.getElementById('filter-buttons').addEventListener('click', (e) => {
+        if (e.target.classList.contains('filter-btn')) {
+          document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+          e.target.classList.add('active');
+          filter = e.target.dataset.filter;
+          renderCasesPanel();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') window.closeCaseDetail();
+      });
+
+      // ----- Initialise -----
+      window.addEventListener('DOMContentLoaded', () => {
+        initMap();
+        // Use mock data
+        airstrips = mockAirstrips;
+        cases = mockCases;
+        updateMapAirstrips();
+        updateUI();
+      });
+    })();
+  </script>
+</body>
+</html>

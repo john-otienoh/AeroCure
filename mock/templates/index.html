@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AeroCure — Dispatch Dashboard</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <!-- Leaflet -->
+  <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet" />
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg:      #070d1a;
+      --surface: #0d1526;
+      --border:  #1e2d45;
+      --accent:  #38bdf8;
+      --muted:   #475569;
+      --text:    #e2e8f0;
+      --text2:   #94a3b8;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; overflow-x: hidden; }
+
+    /* ── Header ─────────────────────────────────── */
+    .ac-header {
+      height: 52px; background: var(--surface); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 20px; gap: 14px; position: sticky; top: 0; z-index: 1000;
+    }
+    .ac-logo { font-family: 'Space Mono', monospace; font-size: .9rem; font-weight: 700; color: var(--text); letter-spacing: .02em; }
+    .ac-logo span { color: var(--accent); }
+    .ac-tag  { font-family: 'Space Mono', monospace; font-size: .6rem; color: var(--muted); letter-spacing: .1em; padding-left: 12px; border-left: 1px solid var(--border); }
+    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444; animation: pulse 1.4s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .sync-badge { font-family: 'Space Mono', monospace; font-size: .62rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; cursor: pointer; background: transparent; }
+    .sync-badge:hover { color: var(--text); border-color: var(--text2); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { display: inline-block; animation: spin 1s linear infinite; }
+
+    /* ── Stats bar ───────────────────────────────── */
+    .stats-bar { display: flex; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; background: var(--surface); }
+    .stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; min-width: 90px; }
+    .stat-val  { font-family: 'Space Mono', monospace; font-size: 1.4rem; font-weight: 700; line-height: 1; }
+    .stat-lbl  { font-size: .6rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-top: 3px; }
+
+    /* ── Main layout ─────────────────────────────── */
+    .ac-main { display: grid; grid-template-columns: 1fr 360px; gap: 10px; padding: 10px 20px; height: calc(100vh - 52px - 60px); }
+    @media (max-width: 900px) { .ac-main { grid-template-columns: 1fr; height: auto; } }
+
+    /* ── Map ─────────────────────────────────────── */
+    #map { width: 100%; height: 100%; min-height: 400px; border-radius: 8px; border: 1px solid var(--border); }
+    .leaflet-container { background: #0a1120; font-family: 'DM Sans', sans-serif; }
+    .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px #0008; }
+    .leaflet-popup-tip { background: var(--surface); }
+    .leaflet-popup-content { margin: 10px 14px; font-size: 12px; line-height: 1.6; }
+    .leaflet-control-zoom a { background: var(--surface) !important; color: var(--text2) !important; border-color: var(--border) !important; }
+    .leaflet-control-attribution { background: rgba(7,13,26,.8) !important; color: var(--muted) !important; font-size: 10px !important; }
+
+    /* ── Cases panel ─────────────────────────────── */
+    .cases-panel { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; height: 100%; }
+    .panel-head  { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .panel-head h6 { margin: 0; font-family: 'Space Mono', monospace; font-size: .72rem; font-weight: 700; letter-spacing: .06em; }
+    .panel-search { padding: 8px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .panel-search input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: .78rem; padding: 5px 10px; outline: none; font-family: 'DM Sans', sans-serif; }
+    .panel-search input:focus { border-color: var(--accent); }
+    .panel-search input::placeholder { color: var(--muted); }
+    .panel-filters { padding: 6px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 5px; flex-wrap: wrap; flex-shrink: 0; }
+    .filter-btn { font-family: 'Space Mono', monospace; font-size: .55rem; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; transition: all .12s; }
+    .filter-btn.active { background: var(--accent); color: #0f172a; border-color: var(--accent); }
+    .cases-list { flex: 1; overflow-y: auto; }
+    .cases-list::-webkit-scrollbar { width: 3px; } .cases-list::-webkit-scrollbar-track { background: transparent; } .cases-list::-webkit-scrollbar-thumb { background: var(--border); }
+    .case-row { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s; }
+    .case-row:hover { background: #142035; }
+    .case-row.selected { background: #1a2e4a; border-left: 3px solid var(--accent); }
+    .case-id  { font-family: 'Space Mono', monospace; font-size: .72rem; font-weight: 700; color: var(--text); }
+    .case-sub { font-size: .72rem; color: var(--text2); margin: 3px 0; }
+    .case-meta { font-size: .65rem; color: var(--muted); display: flex; justify-content: space-between; }
+    .panel-footer { padding: 5px 14px; border-top: 1px solid var(--border); font-family: 'Space Mono', monospace; font-size: .58rem; color: var(--muted); flex-shrink: 0; }
+
+    /* ── Status badges ───────────────────────────── */
+    .badge-RECEIVED   { background: rgba(245,158,11,.12); color: #f59e0b; border: 1px solid rgba(245,158,11,.25); }
+    .badge-DISPATCHED { background: rgba(59,130,246,.12); color: #3b82f6; border: 1px solid rgba(59,130,246,.25); }
+    .badge-AIRBORNE   { background: rgba(16,185,129,.12); color: #10b981; border: 1px solid rgba(16,185,129,.25); }
+    .badge-LANDED     { background: rgba(167,139,250,.12);color: #a78bfa; border: 1px solid rgba(167,139,250,.25);}
+    .badge-COMPLETED  { background: rgba(110,231,183,.12);color: #6ee7b7; border: 1px solid rgba(110,231,183,.25);}
+    .badge-CANCELLED  { background: rgba(239,68,68,.12);  color: #ef4444; border: 1px solid rgba(239,68,68,.25); }
+    .status-badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; font-family: 'Space Mono', monospace; font-size: .58rem; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; }
+    .status-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── Detail modal ────────────────────────────── */
+    .detail-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); background: var(--surface); border-left: 1px solid var(--border); z-index: 2000; display: flex; flex-direction: column; transform: translateX(100%); transition: transform .22s ease; overflow: hidden; }
+    .detail-panel.open { transform: translateX(0); }
+    .detail-head { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .detail-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+    .field-lbl  { font-family: 'Space Mono', monospace; font-size: .56rem; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 3px; }
+    .field-val  { font-size: .84rem; color: var(--text2); margin-bottom: 14px; }
+    .notif-row  { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: .72rem; }
+    .notif-role { font-family: 'Space Mono', monospace; font-size: .58rem; color: var(--accent); min-width: 80px; }
+    .notif-msg  { color: var(--text2); line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+    .btn-close-panel { background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); padding: 2px 8px; cursor: pointer; font-size: .9rem; }
+    .btn-close-panel:hover { color: var(--text); }
+    .update-form select, .update-form textarea, .update-form input { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: .8rem; padding: 6px 10px; width: 100%; margin-bottom: 10px; outline: none; }
+    .update-form select:focus, .update-form textarea:focus { border-color: var(--accent); }
+    .btn-update { background: var(--accent); border: none; border-radius: 4px; color: #0f172a; font-family: 'Space Mono', monospace; font-size: .7rem; font-weight: 700; padding: 8px 16px; width: 100%; cursor: pointer; }
+    .btn-update:hover { opacity: .9; }
+    .btn-update:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+
+    /* ── Toast ───────────────────────────────────── */
+    #toast-container { position: fixed; top: 60px; right: 16px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+    .toast-item { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 16px; font-size: .78rem; color: var(--text); box-shadow: 0 4px 16px #0006; display: flex; align-items: center; gap: 10px; animation: slideIn .2s ease; min-width: 260px; }
+    .toast-item.success { border-left: 3px solid #10b981; }
+    .toast-item.error   { border-left: 3px solid #ef4444; }
+    @keyframes slideIn { from{transform:translateX(120%);opacity:0} to{transform:translateX(0);opacity:1} }
+
+    /* ── SMS test panel ──────────────────────────── */
+    .sms-panel { position: fixed; bottom: 16px; left: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; z-index: 500; min-width: 320px; box-shadow: 0 8px 24px #0008; }
+    .sms-panel h6 { font-family: 'Space Mono', monospace; font-size: .68rem; margin: 0 0 8px 0; color: var(--text2); }
+    .sms-row { display: flex; gap: 6px; }
+    .sms-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: 'Space Mono', monospace; font-size: .75rem; padding: 6px 10px; outline: none; }
+    .sms-input:focus { border-color: var(--accent); }
+    .sms-btn { background: #ef4444; border: none; border-radius: 4px; color: white; font-family: 'Space Mono', monospace; font-size: .7rem; font-weight: 700; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+    .sms-btn:hover { opacity: .85; }
+
+    /* ── Misc ────────────────────────────────────── */
+    .divider { border-top: 1px solid var(--border); margin: 12px 0; }
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: .8rem; }
+    @keyframes ripple { 0%{transform:scale(1);opacity:.7} 100%{transform:scale(2.8);opacity:0} }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ───────────────────────────────────────────────────────── -->
+<div class="ac-header">
+  <span style="font-size:1.1rem">🚑</span>
+  <div class="ac-logo">AEROCURE<span>_</span></div>
+  <div class="ac-tag">DISPATCH CONTROL</div>
+  <div class="ms-auto d-flex align-items-center gap-3">
+    <div id="active-indicator" class="d-none d-flex align-items-center gap-2" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:4px;padding:3px 10px">
+      <div class="pulse-dot"></div>
+      <span id="active-count" style="font-family:'Space Mono',monospace;font-size:.68rem;color:#ef4444;font-weight:700"></span>
+    </div>
+    <button class="sync-badge" id="sync-btn" onclick="manualRefresh()">⟳ <span id="sync-time">--:--</span></button>
+  </div>
+</div>
+
+<!-- ── Stats bar ────────────────────────────────────────────────────── -->
+<div class="stats-bar" id="stats-bar">
+  <div class="stat-card"><div class="stat-val" id="s-active" style="color:#ef4444">0</div><div class="stat-lbl">Active</div></div>
+  <div class="stat-card"><div class="stat-val" id="s-total"  style="color:#94a3b8">0</div><div class="stat-lbl">Total</div></div>
+  <div class="stat-card"><div class="stat-val" id="s-recv"   style="color:#f59e0b">0</div><div class="stat-lbl">Received</div></div>
+  <div class="stat-card"><div class="stat-val" id="s-disp"   style="color:#3b82f6">0</div><div class="stat-lbl">Dispatched</div></div>
+  <div class="stat-card"><div class="stat-val" id="s-air"    style="color:#10b981">0</div><div class="stat-lbl">Airborne</div></div>
+  <div class="stat-card"><div class="stat-val" id="s-land"   style="color:#a78bfa">0</div><div class="stat-lbl">Landed</div></div>
+  <div class="stat-card"><div class="stat-val" id="s-eta"    style="color:#38bdf8">—</div><div class="stat-lbl">Avg ETA (min)</div></div>
+</div>
+
+<!-- ── Main ─────────────────────────────────────────────────────────── -->
+<div class="ac-main">
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Cases panel -->
+  <div class="cases-panel">
+    <div class="panel-head">
+      <h6>ACTIVE CASES</h6>
+      <span id="case-count-badge" style="font-family:'Space Mono',monospace;font-size:.6rem;color:var(--muted)">0 cases</span>
+    </div>
+    <div class="panel-search">
+      <input type="text" id="search-input" placeholder="Search ID, condition, airstrip…" oninput="filterCases()" />
+    </div>
+    <div class="panel-filters" id="filter-btns">
+      <button class="filter-btn active" data-filter="ALL"        onclick="setFilter('ALL',this)">ALL</button>
+      <button class="filter-btn"        data-filter="RECEIVED"   onclick="setFilter('RECEIVED',this)">RECEIVED</button>
+      <button class="filter-btn"        data-filter="DISPATCHED" onclick="setFilter('DISPATCHED',this)">DISPATCHED</button>
+      <button class="filter-btn"        data-filter="AIRBORNE"   onclick="setFilter('AIRBORNE',this)">AIRBORNE</button>
+      <button class="filter-btn"        data-filter="LANDED"     onclick="setFilter('LANDED',this)">LANDED</button>
+      <button class="filter-btn"        data-filter="COMPLETED"  onclick="setFilter('COMPLETED',this)">COMPLETED</button>
+    </div>
+    <div class="cases-list" id="cases-list"></div>
+    <div class="panel-footer" id="panel-footer">0 / 0 cases</div>
+  </div>
+</div>
+
+<!-- ── Detail slide-in panel ────────────────────────────────────────── -->
+<div class="detail-panel" id="detail-panel">
+  <div class="detail-head">
+    <div>
+      <div id="dp-id"   style="font-family:'Space Mono',monospace;font-size:.95rem;font-weight:700;color:var(--accent);margin-bottom:6px"></div>
+      <div id="dp-badge"></div>
+    </div>
+    <button class="btn-close-panel" onclick="closeDetail()">✕</button>
+  </div>
+  <div class="detail-body">
+    <div class="field-lbl">Condition</div>
+    <div class="field-val" id="dp-condition"></div>
+    <div class="field-lbl">Airstrip</div>
+    <div class="field-val" id="dp-airstrip"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><div class="field-lbl">Distance</div><div class="field-val" id="dp-distance"></div></div>
+      <div><div class="field-lbl">ETA</div><div class="field-val" id="dp-eta"></div></div>
+    </div>
+    <div class="field-lbl">Nurse</div>
+    <div class="field-val" id="dp-nurse"></div>
+    <div class="field-lbl">Created</div>
+    <div class="field-val" id="dp-created"></div>
+    <div id="dp-notes-wrap" class="d-none"><div class="field-lbl">Notes</div><div class="field-val" id="dp-notes"></div></div>
+
+    <div class="divider"></div>
+    <div class="field-lbl" style="margin-bottom:8px">NOTIFICATIONS SENT</div>
+    <div id="dp-notifs"></div>
+
+    <div class="divider"></div>
+    <div class="field-lbl" style="margin-bottom:8px">UPDATE STATUS</div>
+    <div class="update-form" id="update-form">
+      <select id="new-status">
+        <option value="">— select next status —</option>
+      </select>
+      <input type="number" id="new-eta" placeholder="Updated ETA (minutes, optional)" min="1" max="600" />
+      <textarea id="new-notes" rows="2" placeholder="Notes (optional)"></textarea>
+      <button class="btn-update" id="btn-update" onclick="submitUpdate()" disabled>SET STATUS</button>
+      <p style="font-size:.62rem;color:var(--muted);text-align:center;margin-top:6px">SMS notifications fire automatically on update.</p>
+    </div>
+    <div id="update-msg"></div>
+  </div>
+</div>
+
+<!-- ── Backdrop ──────────────────────────────────────────────────────── -->
+<div id="backdrop" onclick="closeDetail()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);z-index:1999"></div>
+
+<!-- ── Toast container ──────────────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<!-- ── SMS test widget ──────────────────────────────────────────────── -->
+<div class="sms-panel">
+  <h6>📱 TEST — Send Nurse SMS</h6>
+  <div class="sms-row">
+    <input class="sms-input" id="sms-test-input" placeholder="EVAC 2 TURKANA" value="EVAC 2 TURKANA" onkeydown="if(event.key==='Enter')sendTestSMS()" />
+    <button class="sms-btn" onclick="sendTestSMS()">SEND ▶</button>
+  </div>
+  <div id="sms-feedback" style="font-size:.65rem;color:var(--muted);margin-top:5px"></div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────────
+const WILSON = { lat: -1.32172, lng: 36.8148 };
+const POLL_MS = 12000;
+const STATUS_COLORS = {
+  RECEIVED:   '#f59e0b', DISPATCHED: '#3b82f6',
+  AIRBORNE:   '#10b981', LANDED:     '#a78bfa',
+  COMPLETED:  '#6ee7b7', CANCELLED:  '#ef4444',
+};
+const VALID_TRANSITIONS = {
+  RECEIVED:   ['DISPATCHED','CANCELLED'],
+  DISPATCHED: ['AIRBORNE','CANCELLED'],
+  AIRBORNE:   ['LANDED','CANCELLED'],
+  LANDED:     ['COMPLETED'],
+  COMPLETED:  [],
+  CANCELLED:  [],
+};
+
+// ── State ────────────────────────────────────────────────────────────
+let allCases = [];
+let selectedCaseId = null;
+let activeFilter = 'ALL';
+let caseMarkers = {};
+let lastCaseIds = new Set();
+
+// ── Map init ─────────────────────────────────────────────────────────
+const map = L.map('map', { center: [0.5, 37.5], zoom: 6 });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+}).addTo(map);
+
+// Wilson base marker
+L.marker([WILSON.lat, WILSON.lng], {
+  icon: L.divIcon({ className:'', iconSize:[32,32], iconAnchor:[16,16],
+    html:`<div style="width:32px;height:32px;border-radius:50%;background:#fff;border:2.5px solid #38bdf8;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 12px #38bdf860;">✈</div>`
+  })
+}).addTo(map).bindPopup('<b>✈ Wilson Airport</b><br>AeroCure Base — Cessna Grand Caravan');
+
+// ── Load and render airstrips ─────────────────────────────────────────
+async function loadAirstrips() {
+  const strips = await fetch('/api/airstrips').then(r => r.json());
+  strips.forEach(a => {
+    const icon = L.divIcon({ className:'', iconSize:[10,10], iconAnchor:[5,5],
+      html:`<div style="width:10px;height:10px;border-radius:50%;background:#334155;border:1.5px solid #64748b;"></div>`
+    });
+    L.marker([a.lat, a.lng], { icon }).addTo(map)
+      .bindPopup(`<b>✈ ${a.name}</b><br>${a.county}<br><span style="opacity:.6;font-size:10px">${a.code}</span>`);
+  });
+}
+
+// ── Fetch and render cases ─────────────────────────────────────────────
+async function loadCases() {
+  const cases = await fetch('/api/cases').then(r => r.json()).catch(() => []);
+  const newIds = new Set(cases.map(c => c.id));
+
+  // Toast on new cases
+  if (lastCaseIds.size > 0) {
+    cases.filter(c => !lastCaseIds.has(c.id)).forEach(c => {
+      toast(`🚨 New case: ${c.id} — ${c.condition_name} @ ${c.airstrip_name}`, 'success');
+    });
+  }
+  lastCaseIds = newIds;
+  allCases = cases;
+  renderStats();
+  renderCaseList();
+  renderCaseMarkers();
+  updateSyncTime();
+}
+
+async function loadStats() {
+  const s = await fetch('/api/stats').then(r => r.json()).catch(() => null);
+  if (!s) return;
+  setText('s-active', s.active);
+  setText('s-total',  s.total);
+  setText('s-recv',   s.by_status.RECEIVED   || 0);
+  setText('s-disp',   s.by_status.DISPATCHED || 0);
+  setText('s-air',    s.by_status.AIRBORNE   || 0);
+  setText('s-land',   s.by_status.LANDED     || 0);
+  setText('s-eta',    s.avg_eta != null ? s.avg_eta : '—');
+  const indicator = document.getElementById('active-indicator');
+  if (s.active > 0) {
+    indicator.classList.remove('d-none');
+    setText('active-count', `${s.active} ACTIVE`);
+  } else {
+    indicator.classList.add('d-none');
+  }
+}
+
+function renderStats() {
+  loadStats();
+}
+
+// ── Case list rendering ─────────────────────────────────────────────────
+function filterCases() { renderCaseList(); }
+
+function setFilter(f, btn) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCaseList();
+}
+
+function getFilteredCases() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  return allCases.filter(c => {
+    const matchFilter = activeFilter === 'ALL' || c.status === activeFilter;
+    const matchSearch = !q || [c.id, c.condition_name, c.airstrip_name, c.status]
+      .some(v => v && v.toLowerCase().includes(q));
+    return matchFilter && matchSearch;
+  });
+}
+
+function renderCaseList() {
+  const list = document.getElementById('cases-list');
+  const filtered = getFilteredCases();
+  setText('panel-footer', `${filtered.length} / ${allCases.length} cases`);
+  setText('case-count-badge', `${allCases.length} cases`);
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty-state">${allCases.length ? 'No matching cases' : 'No cases yet.<br>Send a test SMS below.'}</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(c => {
+    const ts = c.created_at ? new Date(c.created_at).toLocaleString('en-KE',
+      { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+    const eta = c.eta_minutes ? `${c.eta_minutes}m ETA` : ts;
+    const sel = selectedCaseId === c.id ? ' selected' : '';
+    return `
+      <div class="case-row${sel}" onclick="selectCase('${c.id}')">
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="case-id">${c.id}</span>
+          ${statusBadge(c.status)}
+        </div>
+        <div class="case-sub">${c.condition_name}</div>
+        <div class="case-meta">
+          <span>✈ ${c.airstrip_name}</span>
+          <span>${eta}</span>
+        </div>
+        ${c.distance_km ? `<div class="case-meta" style="margin-top:2px"><span style="color:var(--accent)">${c.distance_km} km · ${c.airstrip_code}</span></div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+// ── Map case markers ────────────────────────────────────────────────────
+function renderCaseMarkers() {
+  // Remove old
+  Object.values(caseMarkers).forEach(m => m.remove());
+  caseMarkers = {};
+
+  allCases.filter(c => !['COMPLETED','CANCELLED'].includes(c.status) && c.airstrip_lat)
+    .forEach(c => {
+      const color = STATUS_COLORS[c.status] || '#94a3b8';
+      const icon = L.divIcon({ className:'', iconSize:[22,22], iconAnchor:[11,11],
+        html:`<div style="position:relative;width:22px;height:22px">
+          <div style="position:absolute;inset:0;border-radius:50%;background:${color}25;animation:ripple 1.6s ease-out infinite"></div>
+          <div style="position:absolute;inset:5px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}"></div>
+        </div>`
+      });
+      const m = L.marker([c.airstrip_lat, c.airstrip_lng], { icon })
+        .addTo(map)
+        .bindPopup(`
+          <b>${c.id}</b><br>
+          ${c.condition_name}<br>
+          <span style="color:${color};font-weight:700">${c.status}</span>
+          ${c.eta_minutes ? `<br>ETA: ${c.eta_minutes} min` : ''}
+          ${c.distance_km ? `<br>${c.distance_km} km from Wilson` : ''}
+        `)
+        .on('click', () => selectCase(c.id));
+      caseMarkers[c.id] = m;
+    });
+}
+
+// ── Status badge HTML ────────────────────────────────────────────────────
+function statusBadge(status) {
+  const color = STATUS_COLORS[status] || '#94a3b8';
+  return `<span class="status-badge badge-${status}">
+    <span class="status-dot" style="background:${color};box-shadow:0 0 5px ${color}"></span>
+    ${status}
+  </span>`;
+}
+
+// ── Case detail panel ────────────────────────────────────────────────────
+async function selectCase(id) {
+  selectedCaseId = id;
+  renderCaseList();
+  const c = allCases.find(x => x.id === id);
+  if (!c) return;
+
+  setText('dp-id', c.id);
+  document.getElementById('dp-badge').innerHTML = statusBadge(c.status);
+  setText('dp-condition', `[${c.condition_code}] ${c.condition_name}`);
+  setText('dp-airstrip',  c.airstrip_name);
+  setText('dp-distance',  c.distance_km ? `${c.distance_km} km` : '—');
+  setText('dp-eta',       c.eta_minutes ? `${c.eta_minutes} min` : '—');
+  setText('dp-nurse',     c.nurse_phone);
+  setText('dp-created',   c.created_at ? new Date(c.created_at).toLocaleString('en-KE') : '—');
+
+  const notesWrap = document.getElementById('dp-notes-wrap');
+  if (c.notes) { notesWrap.classList.remove('d-none'); setText('dp-notes', c.notes); }
+  else          { notesWrap.classList.add('d-none'); }
+
+  // Populate transition options
+  const sel = document.getElementById('new-status');
+  const transitions = VALID_TRANSITIONS[c.status] || [];
+  sel.innerHTML = transitions.length
+    ? `<option value="">— select next status —</option>${transitions.map(s => `<option value="${s}">${s}</option>`).join('')}`
+    : `<option value="">No further updates (${c.status})</option>`;
+  document.getElementById('btn-update').disabled = transitions.length === 0;
+  sel.onchange = () => { document.getElementById('btn-update').disabled = !sel.value; };
+  document.getElementById('update-msg').innerHTML = '';
+
+  // Load notifications
+  const notifs = await fetch(`/api/notifications/${id}`).then(r => r.json()).catch(() => []);
+  const notifEl = document.getElementById('dp-notifs');
+  notifEl.innerHTML = notifs.length
+    ? notifs.map(n => `
+        <div class="notif-row">
+          <span class="notif-role">${n.recipient_role}</span>
+          <span class="notif-msg">${n.message_text}</span>
+        </div>`).join('')
+    : '<div style="font-size:.72rem;color:var(--muted)">No notifications yet.</div>';
+
+  openDetail();
+  // Fly map to this airstrip
+  if (c.airstrip_lat && c.airstrip_lng) {
+    map.flyTo([c.airstrip_lat, c.airstrip_lng], 8, { duration: 1.2 });
+  }
+}
+
+function openDetail() {
+  document.getElementById('detail-panel').classList.add('open');
+  document.getElementById('backdrop').style.display = 'block';
+}
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+  document.getElementById('backdrop').style.display = 'none';
+  selectedCaseId = null;
+  renderCaseList();
+}
+
+async function submitUpdate() {
+  const status = document.getElementById('new-status').value;
+  const notes  = document.getElementById('new-notes').value;
+  const eta    = document.getElementById('new-eta').value;
+  if (!status || !selectedCaseId) return;
+
+  document.getElementById('btn-update').disabled = true;
+  setText('update-msg', '');
+
+  const body = { status, notes, changed_by: 'DASHBOARD' };
+  if (eta) body.eta_minutes = parseInt(eta);
+
+  const r = await fetch(`/api/cases/${selectedCaseId}/update`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  const data = await r.json();
+
+  if (r.ok) {
+    toast(`✅ ${selectedCaseId} → ${status}`, 'success');
+    await loadCases();
+    selectCase(selectedCaseId);
+    document.getElementById('new-notes').value = '';
+    document.getElementById('new-eta').value   = '';
+  } else {
+    document.getElementById('update-msg').innerHTML =
+      `<div style="color:#ef4444;font-size:.72rem;margin-top:4px">${data.detail || 'Update failed'}</div>`;
+    document.getElementById('btn-update').disabled = false;
+  }
+}
+
+// ── SMS test widget ──────────────────────────────────────────────────────
+async function sendTestSMS() {
+  const msg   = document.getElementById('sms-test-input').value.trim();
+  const phone = '+254700000099';
+  if (!msg) return;
+
+  document.getElementById('sms-feedback').textContent = 'Sending…';
+
+  const r = await fetch('/api/inbound-sms', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ message: msg, phone })
+  });
+  const data = await r.json();
+
+  if (r.ok && data.success) {
+    document.getElementById('sms-feedback').textContent = `✅ ${data.case_id} created`;
+    document.getElementById('sms-feedback').style.color = '#10b981';
+    await loadCases();
+    setTimeout(() => selectCase(data.case_id), 300);
+  } else {
+    document.getElementById('sms-feedback').textContent = `❌ ${data.error || data.detail}`;
+    document.getElementById('sms-feedback').style.color = '#ef4444';
+  }
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────
+function toast(msg, type='success') {
+  const el = document.createElement('div');
+  el.className = `toast-item ${type}`;
+  el.innerHTML = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 4500);
+}
+
+// ── Sync indicator ────────────────────────────────────────────────────────
+function updateSyncTime() {
+  const btn = document.getElementById('sync-btn');
+  const t = new Date().toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  btn.innerHTML = `⟳ ${t}`;
+}
+
+async function manualRefresh() {
+  const btn = document.getElementById('sync-btn');
+  btn.innerHTML = `<span class="spinning">⟳</span> syncing…`;
+  await loadCases();
+  await loadStats();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+async function init() {
+  await loadAirstrips();
+  await loadCases();
+  await loadStats();
+  setInterval(loadCases, POLL_MS);
+  setInterval(loadStats, POLL_MS);
+
+  document.getElementById('sms-test-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendTestSMS();
+  });
+}
+
+init();
+</script>
+</body>
+</html>
